@@ -9,13 +9,22 @@
 # the very first boot fails with "unable to open database file". Ownership
 # is only ever corrected, never assumed pre-existing.
 #
-# After that, drops privileges via `gosu` (a proper execve-based swap, not
-# `su`+fork, so PID 1's identity is preserved) and runs Alembic migrations,
-# then execs uvicorn as the actual, final PID 1 so it receives
-# SIGTERM/SIGINT directly from the container runtime and can shut down
-# gracefully (see backend/app/main.py's lifespan — in-flight requests
-# finish, the DB engine is disposed). The application process itself never
-# runs as root, satisfying §9's non-root-runtime-user requirement.
+# After that, drops privileges via `setpriv --init-groups` (a proper
+# execve-based swap, not `su`+fork, so PID 1's identity is preserved) and
+# runs Alembic migrations, then execs uvicorn as the actual, final PID 1
+# so it receives SIGTERM/SIGINT directly from the container runtime and
+# can shut down gracefully (see backend/app/main.py's lifespan —
+# in-flight requests finish, the DB engine is disposed). The application
+# process itself never runs as root, satisfying §9's non-root-runtime-user
+# requirement.
+#
+# `setpriv --init-groups`, not `gosu`, is used deliberately: live-verified
+# that `gosu groovarr:groovarr` silently drops ALL supplementary group
+# membership even when /etc/group genuinely lists groovarr as a member of
+# another group — which would silently break the hardware-acceleration
+# device-group grant below (the running process would have R/W group
+# permission on paper but no actual access). `setpriv --init-groups`
+# correctly re-resolves supplementary groups from /etc/group at drop time.
 #
 # Per docs/00-research-and-architecture-review.md §4/§6: SQLite + Alembic,
 # `app.main:app` served by uvicorn, config/db under $CONFIG_DIR (default
@@ -38,14 +47,47 @@ fix_ownership_if_needed() {
     fi
 }
 
+# Hardware-accelerated transcoding (VAAPI/QSV) needs read/write access to
+# the host's DRM render node(s) passed through via docker-compose's
+# `devices: [/dev/dri:/dev/dri]` (see that file — commented out by
+# default). The device is group-owned (typically group "render" or
+# "video") by a GID that varies per host, so it can't be baked into the
+# image at build time — detect it at boot and add the app user to a
+# matching group, creating one if this GID isn't already named on the
+# container's own /etc/group. A no-op when /dev/dri wasn't passed
+# through (the common case — app/integrations/acquisition/hwaccel.py
+# then correctly detects no hardware acceleration is available).
+grant_device_group_access() {
+    device="$1"
+    [ -e "$device" ] || return 0
+    gid="$(stat -c '%g' "$device")"
+    [ "$gid" = "0" ] && return 0
+    if ! getent group "$gid" >/dev/null 2>&1; then
+        groupadd -g "$gid" "hwaccel-${gid}" 2>/dev/null || true
+    fi
+    group_name="$(getent group "$gid" | cut -d: -f1)"
+    if ! id -nG groovarr 2>/dev/null | tr ' ' '\n' | grep -qx "$group_name"; then
+        usermod -aG "$group_name" groovarr
+        echo "groovarr: granted app user access to ${device} via group '${group_name}' (gid ${gid})" >&2
+    fi
+}
+
 if [ "$(id -u)" = "0" ]; then
     fix_ownership_if_needed /config
     fix_ownership_if_needed /music-videos
     fix_ownership_if_needed /downloads
 
+    if [ -d /dev/dri ]; then
+        for dri_device in /dev/dri/*; do
+            [ -e "$dri_device" ] && grant_device_group_access "$dri_device"
+        done
+    fi
+
+    SETPRIV="setpriv --reuid ${APP_UID} --regid ${APP_GID} --init-groups"
+
     cd "$BACKEND_DIR"
     echo "groovarr: running database migrations (alembic upgrade head)..." >&2
-    gosu groovarr:groovarr alembic upgrade head
+    $SETPRIV alembic upgrade head
 
     echo "groovarr: starting uvicorn on 0.0.0.0:${PORT} as uid ${APP_UID}..." >&2
     # --proxy-headers makes uvicorn trust X-Forwarded-Proto/X-Forwarded-Host
@@ -59,7 +101,7 @@ if [ "$(id -u)" = "0" ]; then
     # operator controls what's allowed to reach it (§98), but an operator
     # running a genuinely untrusted network path in front of Groovarr
     # should narrow this to their actual proxy's address instead.
-    exec gosu groovarr:groovarr uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" \
+    exec $SETPRIV uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" \
         --proxy-headers --forwarded-allow-ips='*'
 else
     # Not started as root (e.g. a custom `docker run --user` override) —

@@ -45,9 +45,10 @@ services:
     # for the same clip).
     #
     # Intel Quick Sync (QSV) or generic VAAPI (Intel or AMD iGPU/dGPU) —
-    # passes through the host's DRM render node:
-    # devices:
-    #   - /dev/dri:/dev/dri
+    # passes through the host's DRM render node. Enabled here: this
+    # deployment's host has a real Intel iGPU (confirmed above).
+    devices:
+      - /dev/dri:/dev/dri
     #
     # NVIDIA (NVENC) — requires the NVIDIA Container Toolkit installed on
     # the host (see docs.nvidia.com/datacenter/cloud-native/container-toolkit):

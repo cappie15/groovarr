@@ -69,24 +69,31 @@ ENV PORT=${PORT} \
 # architecture doc discusses as the ideal — see THIRD_PARTY_NOTICES.md for
 # the honest license status of what's actually shipped here.
 #
-# `gosu` is for the entrypoint's privilege-drop step (see docker/entrypoint.sh):
-# the container starts as root so it can fix ownership of freshly-created
-# bind-mounted host volumes on first run (a plain `docker compose up` on an
-# operator's host creates ./config, ./music-videos, ./downloads as
-# root:root — a fixed-uid non-root USER can't write to those), then execs
-# into the unprivileged `groovarr` user via gosu (a proper execve-based
-# swap, unlike `su`, so PID 1's signal handling for graceful shutdown stays
-# intact).
+# The entrypoint's privilege-drop step (see docker/entrypoint.sh) uses
+# `setpriv` (from util-linux, already present in this base image — no
+# extra package needed) rather than `gosu`: the container starts as root
+# so it can fix ownership of freshly-created bind-mounted host volumes on
+# first run (a plain `docker compose up` on an operator's host creates
+# ./config, ./music-videos, ./downloads as root:root — a fixed-uid
+# non-root USER can't write to those) and, when hardware-accelerated
+# transcoding device passthrough (/dev/dri) is configured, add the app
+# user to whatever host-specific group owns those devices — then execs
+# into the unprivileged `groovarr` user via `setpriv --init-groups` (a
+# proper execve-based swap that correctly re-initializes supplementary
+# groups for that dynamic membership, which `gosu` does NOT do — verified
+# live: gosu silently drops supplementary groups even when the target
+# user's /etc/group membership is genuinely present, which would silently
+# break device-group-based hardware-acceleration access).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg gosu \
+    && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Fixed numeric uid/gid so bind-mounted host volumes can be chowned
 # predictably by the operator (or by the entrypoint itself, see above).
 # No `USER` directive here — this image intentionally starts as root and
-# drops to this user at runtime via `gosu` in entrypoint.sh, not at build
-# time (§9's non-root-runtime-user requirement is still met: the actual
-# application process never runs as root).
+# drops to this user at runtime via `setpriv` in entrypoint.sh, not at
+# build time (§9's non-root-runtime-user requirement is still met: the
+# actual application process never runs as root).
 RUN groupadd --gid 10001 groovarr \
     && useradd --uid 10001 --gid groovarr --create-home --shell /usr/sbin/nologin groovarr
 
