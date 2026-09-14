@@ -138,7 +138,7 @@ async def run_search_for_track(
         await session.flush()
 
     try:
-        raw_candidates = await discover_candidates(http, track)
+        raw_candidates = await discover_candidates(session, http, track)
     except YouTubeError as exc:
         logger.warning("search.discovery_failed", track_id=track.id, error=str(exc))
         raw_candidates = []

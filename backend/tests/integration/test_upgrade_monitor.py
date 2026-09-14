@@ -102,7 +102,7 @@ def _mock_discovery(monkeypatch, new_video_id: str):
         channel_name="Daft Punk",
     )
 
-    async def _discover(http, track):
+    async def _discover(session, http, track):
         return [candidate]
 
     async def _enrich(video_id):

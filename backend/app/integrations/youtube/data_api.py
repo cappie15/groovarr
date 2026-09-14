@@ -17,6 +17,16 @@ from app.integrations.youtube.errors import YouTubeError
 
 SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 
+#: A `search.list` call costs 100 quota units against Google's own default
+#: project quota of 10,000 units/day — i.e. ~100 searches/day on an unmodified
+#: project. Both are Google-documented constants (YouTube Data API v3 quota
+#: costs table / default project quota), not something the API exposes for
+#: Groovarr to read back at runtime — there is no "remaining quota" endpoint.
+#: Used by app/services/settings_service.py to turn Groovarr's own call
+#: counter into an operator-facing estimate on System/Status (§88).
+SEARCH_LIST_QUOTA_COST_UNITS = 100
+YOUTUBE_DEFAULT_DAILY_QUOTA_UNITS = 10_000
+
 
 @dataclass(frozen=True)
 class RawCandidate:

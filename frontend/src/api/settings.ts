@@ -82,6 +82,8 @@ export function updateMonitorBetterVersions(enabled: boolean, options?: RequestO
 export type ContainerPolicy = components['schemas']['ContainerPolicy'];
 export type HardwareAccelPolicy = components['schemas']['HardwareAccelPolicy'];
 export type HardwareAccelStatusOut = components['schemas']['HardwareAccelStatusOut'];
+export type YouTubeQuotaStatusOut = components['schemas']['YouTubeQuotaStatusOut'];
+export type YtdlpVersionStatusOut = components['schemas']['YtdlpVersionStatusOut'];
 
 /** PUT /api/settings/media — §2 row D: whether the acquisition pipeline
  * transcodes to MP4 (default) or falls back to a stream-copy MKV when the
@@ -133,4 +135,23 @@ export function updateHardwareAcceleration(
  * next to the policy choice instead of leaving the operator to guess. */
 export function getHardwareAccelerationDetection(options?: RequestOptions): Promise<HardwareAccelStatusOut> {
   return apiClient.get<HardwareAccelStatusOut>('/system/hardware-acceleration', options);
+}
+
+/** GET /api/system/youtube-quota — Groovarr's own estimate of today's
+ * YouTube Data API v3 `search.list` usage (§88/§2-G): there is no
+ * "remaining quota" endpoint to read this from Google directly, so this is
+ * a count Groovarr keeps of calls it made itself, against the documented
+ * 100-units-per-call / 10,000-units-per-day defaults. Only the real Data
+ * API discovery path is counted — the ytsearch: fallback has no quota
+ * cost. */
+export function getYoutubeQuotaStatus(options?: RequestOptions): Promise<YouTubeQuotaStatusOut> {
+  return apiClient.get<YouTubeQuotaStatusOut>('/system/youtube-quota', options);
+}
+
+/** GET /api/system/ytdlp-version — installed yt-dlp build vs. the latest
+ * GitHub release, purely informational (never attempts to update
+ * anything). The backend caches the GitHub lookup for 24h, so this is
+ * cheap to call on every System/Status page load. */
+export function getYtdlpVersionStatus(options?: RequestOptions): Promise<YtdlpVersionStatusOut> {
+  return apiClient.get<YtdlpVersionStatusOut>('/system/ytdlp-version', options);
 }

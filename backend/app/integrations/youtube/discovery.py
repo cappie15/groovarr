@@ -11,6 +11,7 @@ without touching app/matching/scoring.py.
 
 import httpx
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.models.spotify import Track
@@ -37,14 +38,26 @@ def build_search_query(track: Track) -> str:
     return " ".join(p for p in parts if p)
 
 
-async def discover_candidates(http: httpx.AsyncClient, track: Track) -> list[RawCandidate]:
+async def discover_candidates(session: AsyncSession, http: httpx.AsyncClient, track: Track) -> list[RawCandidate]:
+    # Imported here rather than at module scope purely to avoid a needless
+    # top-level dependency on the settings-service module from a file whose
+    # job is discovery, not settings — no actual import cycle either way.
+    from app.services.settings_service import record_youtube_search_call
+
     query = build_search_query(track)
     settings = get_settings()
 
     if settings.youtube_api_key:
         try:
             client = YouTubeDataApiClient(http, settings.youtube_api_key)
-            results = await client.search(query, max_results=MAX_CANDIDATES)
+            try:
+                results = await client.search(query, max_results=MAX_CANDIDATES)
+            finally:
+                # Count every real `search.list` call attempt (success or
+                # rejected), never the ytsearch: fallback below — quota is
+                # consumed by Google the moment the request is made, not
+                # only when it happens to return usable results (§88).
+                await record_youtube_search_call(session)
             if results:
                 return results
             logger.info("youtube.discovery_empty_via_data_api", query=query)

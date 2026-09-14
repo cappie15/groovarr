@@ -46,7 +46,7 @@ async def _make_wanted_track(session, *, playlist_spotify_id: str = "p1", **over
 
 
 def _fake_discover(*candidates: RawCandidate):
-    async def _discover(http, track):
+    async def _discover(session, http, track):
         return list(candidates)
 
     return _discover

@@ -206,6 +206,22 @@ class AppSettings(Base):
         nullable=False,
     )
 
+    # System insights: YouTube Data API v3 `search.list` daily quota
+    # visibility (§88/§2-G — there is no authoritative "remaining quota"
+    # endpoint, so this is Groovarr's own count of calls *it* made, not a
+    # value read from Google). `youtube_quota_date` is the UTC calendar date
+    # (ISO `YYYY-MM-DD`) the counter currently applies to; a read/write that
+    # finds today's real UTC date different from this resets the counter to
+    # 0 first (see app/services/settings_service.py:record_youtube_search_call).
+    # A plain string date (rather than a DateTime) keeps the reset check a
+    # cheap string comparison and sidesteps timezone-conversion edge cases —
+    # this only needs day granularity. Deliberately NOT reset by a scheduled
+    # job: the lazy "reset on first use of a new day" pattern means it's
+    # always correct on read regardless of whether any search happened
+    # overnight, with no extra job to schedule/monitor.
+    youtube_quota_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    youtube_quota_search_calls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid only
         return "<AppSettings>"
 

@@ -799,6 +799,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/youtube-quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Youtube Quota Status
+         * @description How much of the YouTube Data API v3 daily quota Groovarr itself has
+         *     used today (§88/§2-G) — an estimate Groovarr derives from its own count
+         *     of `search.list` calls, since Google's API has no "remaining quota"
+         *     endpoint to read this from directly. Only the real Data API discovery
+         *     path increments the counter; the `ytsearch:` fallback has no quota cost
+         *     and is never counted.
+         */
+        get: operations["read_youtube_quota_status_api_system_youtube_quota_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/ytdlp-version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Ytdlp Version Status
+         * @description Compares the installed yt-dlp build against the latest GitHub release
+         *     (§88 — a gap the frontend System page previously called out by name).
+         *     Purely informational: never attempts to update anything. The GitHub
+         *     lookup is cached in-process for 24h (see ytdlp_version.CACHE_TTL), so
+         *     this is typically a cache hit, not a live network call.
+         */
+        get: operations["read_ytdlp_version_status_api_system_ytdlp_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1306,6 +1355,32 @@ export interface components {
             explicit: boolean;
             /** Playlist Names */
             playlist_names: string[];
+        };
+        /** YouTubeQuotaStatusOut */
+        YouTubeQuotaStatusOut: {
+            /** Date */
+            date: string;
+            /** Search Calls Today */
+            search_calls_today: number;
+            /** Quota Units Used Today */
+            quota_units_used_today: number;
+            /** Quota Units Default Daily */
+            quota_units_default_daily: number;
+            /** Estimated Daily Search Limit */
+            estimated_daily_search_limit: number;
+        };
+        /** YtdlpVersionStatusOut */
+        YtdlpVersionStatusOut: {
+            /** Installed Version */
+            installed_version: string;
+            /** Latest Version */
+            latest_version: string | null;
+            /** Update Available */
+            update_available: boolean;
+            /** Checked At */
+            checked_at: string | null;
+            /** Check Error */
+            check_error: string | null;
         };
     };
     responses: never;
@@ -2652,6 +2727,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HardwareAccelStatusOut"];
+                };
+            };
+        };
+    };
+    read_youtube_quota_status_api_system_youtube_quota_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["YouTubeQuotaStatusOut"];
+                };
+            };
+        };
+    };
+    read_ytdlp_version_status_api_system_ytdlp_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["YtdlpVersionStatusOut"];
                 };
             };
         };

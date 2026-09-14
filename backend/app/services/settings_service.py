@@ -9,12 +9,14 @@ when present.
 """
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.secrets import decrypt_secret, encrypt_secret
 from app.db.models.settings import SETTINGS_SINGLETON_ID, AppSettings, ContainerPolicy, HardwareAccelPolicy
+from app.integrations.youtube.data_api import SEARCH_LIST_QUOTA_COST_UNITS, YOUTUBE_DEFAULT_DAILY_QUOTA_UNITS
 
 
 async def get_app_settings(session: AsyncSession) -> AppSettings:
@@ -299,3 +301,53 @@ async def get_plex_credentials(session: AsyncSession) -> PlexCredentials:
     if not row.plex_url or not row.plex_token_encrypted:
         raise ValueError("Plex server URL and token are not configured.")
     return PlexCredentials(url=row.plex_url, token=decrypt_secret(row.plex_token_encrypted))
+
+
+# --- System insights: YouTube Data API quota visibility (§88/§2-G) ----------
+
+
+@dataclass(frozen=True)
+class YouTubeQuotaStatus:
+    date: str
+    search_calls_today: int
+    quota_units_used_today: int
+    quota_units_default_daily: int
+    estimated_daily_search_limit: int
+
+
+def _today_utc_iso() -> str:
+    return datetime.now(UTC).date().isoformat()
+
+
+async def record_youtube_search_call(session: AsyncSession) -> AppSettings:
+    """Increment today's `search.list` call counter — call this once per
+    real Data API call (never for the `ytsearch:` fallback, which has no
+    quota cost). Resets to 0 first if the stored date has rolled over since
+    the last call, so this needs no separate scheduled reset job (UTC
+    midnight, not Google's own unpublished exact reset window — see the
+    model field's docstring)."""
+    row = await get_app_settings(session)
+    today = _today_utc_iso()
+    if row.youtube_quota_date != today:
+        row.youtube_quota_date = today
+        row.youtube_quota_search_calls = 0
+    row.youtube_quota_search_calls += 1
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+async def get_youtube_search_quota_status(session: AsyncSession) -> YouTubeQuotaStatus:
+    """Read-only view for the System/Status page. Rolls over to 0 on read
+    too (without persisting the reset) so a day with zero searches still
+    reports 0, not yesterday's stale count."""
+    row = await get_app_settings(session)
+    today = _today_utc_iso()
+    calls_today = row.youtube_quota_search_calls if row.youtube_quota_date == today else 0
+    return YouTubeQuotaStatus(
+        date=today,
+        search_calls_today=calls_today,
+        quota_units_used_today=calls_today * SEARCH_LIST_QUOTA_COST_UNITS,
+        quota_units_default_daily=YOUTUBE_DEFAULT_DAILY_QUOTA_UNITS,
+        estimated_daily_search_limit=YOUTUBE_DEFAULT_DAILY_QUOTA_UNITS // SEARCH_LIST_QUOTA_COST_UNITS,
+    )
