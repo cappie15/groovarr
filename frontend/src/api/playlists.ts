@@ -16,8 +16,10 @@ export function listPlaylists(params: ListPlaylistsParams = {}, options?: Reques
   return apiClient.get<PlaylistOut[]>('/playlists', { ...options, query: { ...params, ...options?.query } });
 }
 
-/** POST /api/playlists — Client Credentials mode: any public/unlisted Spotify
- * playlist URL or bare ID, no login step required. */
+/** POST /api/playlists — any public/unlisted Spotify playlist URL or bare
+ * ID. Reading the playlist's tracks requires Spotify connected via the
+ * PKCE flow in Settings (§2-E) — Client Credentials alone is no longer
+ * enough, even for public playlists. */
 export function connectPlaylist(urlOrId: string, options?: RequestOptions): Promise<PlaylistOut> {
   return apiClient.post<PlaylistOut>('/playlists', { url_or_id: urlOrId }, options);
 }

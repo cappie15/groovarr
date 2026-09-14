@@ -18,9 +18,10 @@ export function updateSyncInterval(hours: number, options?: RequestOptions): Pro
   return apiClient.put<SettingsOut>('/settings/sync-interval', { default_sync_interval_hours: hours }, options);
 }
 
-/** PUT /api/settings/spotify-credentials — the DEFAULT Client Credentials
- * Flow (app-only, no login) — sufficient on its own for any public/unlisted
- * playlist (§2-E). */
+/** PUT /api/settings/spotify-credentials — the app-only Client Credentials
+ * Flow. Covers playlist metadata on its own, but reading a playlist's
+ * tracks now requires the PKCE "Connect your Spotify account" flow too,
+ * for every playlist (live-verified update, §2-E). */
 export function updateSpotifyCredentials(
   body: SpotifyCredentialsRequest,
   options?: RequestOptions,

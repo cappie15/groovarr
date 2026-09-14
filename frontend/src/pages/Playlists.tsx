@@ -182,7 +182,7 @@ function ConnectPlaylistForm({ onConnected }: { onConnected: () => void }) {
           id="connect-playlist-input"
           type="text"
           style={{ width: 380 }}
-          placeholder="Playlist URL, URI, or ID (public/unlisted — no login needed)"
+          placeholder="Playlist URL, URI, or ID (requires Spotify connected in Settings)"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={busy}

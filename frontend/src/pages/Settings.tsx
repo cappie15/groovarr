@@ -57,9 +57,14 @@ function SaveButton({ busy, onClick, label = 'Save' }: { busy: boolean; onClick:
 }
 
 // ---------------------------------------------------------------------------
-// Spotify — Client Credentials is the DEFAULT (no login, public/unlisted
-// playlists only); the optional PKCE "Connect your account" flow is a
-// clearly separate, opt-in path for private/collaborative playlists (§2-E).
+// Spotify — Client Credentials alone covers playlist metadata (name,
+// artwork, change detection). Live-verified 2026-09-14 against a real
+// Spotify app: Spotify now requires the PKCE "Connect your account" flow
+// to actually read ANY playlist's tracks, public playlists included — this
+// used to be true only for private/collaborative playlists (§2-E). The
+// Client ID/Secret fields below are still required (metadata + the PKCE
+// flow both use them), but the "Connect your Spotify account" step is now
+// effectively mandatory for real use, not an optional add-on.
 // ---------------------------------------------------------------------------
 function SpotifySection({ settings, onSaved }: { settings: SettingsOut; onSaved: (s: SettingsOut) => void }) {
   const toast = useToast();
@@ -119,7 +124,7 @@ function SpotifySection({ settings, onSaved }: { settings: SettingsOut; onSaved:
   return (
     <SettingsSection
       title="Spotify"
-      hint="The default mode below needs no login at all and works for any public or unlisted playlist — just a free Spotify Developer Dashboard app's Client ID/Secret. Only enable “Connect your Spotify account” if you need to import a private or collaborative playlist."
+      hint="Client ID/Secret from a free Spotify Developer Dashboard app let Groovarr read a playlist's name, artwork and change status without logging in. To actually read a playlist's tracks, Spotify now requires the “Connect your Spotify account” step below for every playlist — public ones included, not just private/collaborative ones."
     >
       <div className="settings-section__row">
         <StatusBadge
@@ -129,7 +134,7 @@ function SpotifySection({ settings, onSaved }: { settings: SettingsOut; onSaved:
       </div>
       <div className="settings-section__row">
         <div className="field">
-          <label htmlFor="spotify-client-id">Client ID (default, no-login mode)</label>
+          <label htmlFor="spotify-client-id">Client ID (metadata + used by the Connect step below)</label>
           <input
             id="spotify-client-id"
             type="text"
@@ -176,7 +181,8 @@ function SpotifySection({ settings, onSaved }: { settings: SettingsOut; onSaved:
           disabled={busyOAuthToggle}
           onChange={(e) => toggleUserOAuth(e.target.checked)}
         />
-        Connect your Spotify account (optional — only needed for private/collaborative playlists)
+        Connect your Spotify account (required to read any playlist's tracks — Spotify no longer allows this
+        without logging in, even for public playlists)
       </label>
 
       {settings.spotify_user_oauth_enabled && (
@@ -187,10 +193,15 @@ function SpotifySection({ settings, onSaved }: { settings: SettingsOut; onSaved:
           {settings.spotify_needs_reauth && (
             <span className="subtle-note" style={{ color: '#d94f4f' }}>
               Your stored authorization has expired (Spotify requires re-authorization roughly every 6 months) —
-              private/collaborative playlist sync is paused until you reconnect.
+              playlist track sync is paused for every playlist until you reconnect.
             </span>
           )}
         </div>
+      )}
+      {!settings.spotify_user_oauth_enabled && (
+        <span className="subtle-note" style={{ display: 'block', marginTop: 8 }}>
+          Without this, Groovarr can still detect that a playlist changed but can't read which tracks are in it.
+        </span>
       )}
     </SettingsSection>
   );
