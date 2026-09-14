@@ -130,12 +130,21 @@ class SpotifyClient:
 
     async def get_playlist_tracks(self, playlist_id: str, access_token: str) -> list[dict[str, Any]]:
         """Fetch every playlist item, following pagination. Each item is the
-        raw Spotify "playlist track object" (has `.track`, a nested track
+        raw Spotify "playlist item object" (has `.item`, a nested track
         object) — normalization into a `Track` row happens in the sync
         service, not here.
+
+        LIVE-VERIFIED (2026-09-14): the legacy `/playlists/{id}/tracks`
+        endpoint now returns a hard 403 regardless of token type — confirmed
+        even with a genuine, freshly-refreshed PKCE user access token, not
+        just Client Credentials. Its documented replacement,
+        `/playlists/{id}/items`, works correctly and returns the same
+        underlying track data, just nested one level deeper (`item.item`
+        rather than `item.track`) — see `app/services/spotify_sync.py` for
+        where that shape difference is consumed.
         """
         items: list[dict[str, Any]] = []
-        url: str | None = f"{API_BASE}/playlists/{playlist_id}/tracks"
+        url: str | None = f"{API_BASE}/playlists/{playlist_id}/items"
         params: dict[str, Any] | None = {"limit": 100}
 
         while url:
@@ -157,10 +166,11 @@ def _raise_for_playlist_response(response: httpx.Response, playlist_id: str) -> 
         raise SpotifyNotFoundError(f"Spotify playlist {playlist_id!r} does not exist")
     if response.status_code in (401, 403):
         raise SpotifyAccessDeniedError(
-            f"Spotify denied app-only (Client Credentials) access to playlist {playlist_id!r}. "
-            "This is not limited to private/collaborative playlists — Spotify's current API can "
-            "deny this even for genuinely public playlists, most often for the track-listing "
-            "endpoint specifically."
+            f"Spotify denied this request for playlist {playlist_id!r} "
+            f"(HTTP {response.status_code}). This is not limited to private/collaborative "
+            "playlists or to app-only (Client Credentials) tokens — Spotify's current API can "
+            "deny this even for a genuinely public playlist and a valid user token, most often "
+            "for the track-listing endpoint specifically."
         )
     if response.status_code == 429:
         retry_after = response.headers.get("Retry-After")

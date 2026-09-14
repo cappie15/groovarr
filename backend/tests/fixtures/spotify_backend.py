@@ -10,7 +10,7 @@ import httpx
 
 _TOKEN_URL = "https://accounts.spotify.com/api/token"
 _PLAYLIST_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)$")
-_TRACKS_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)/tracks")
+_ITEMS_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)/items")
 
 
 class FakeSpotifyBackend:
@@ -23,12 +23,18 @@ class FakeSpotifyBackend:
         self.playlists: dict[str, dict] = {}
         self.playlist_tracks: dict[str, list[dict]] = {}
         self.token_requests = 0
-        # Live-verified (2026-09-14, against the real Spotify API): the
-        # track-listing endpoint can deny Client Credentials ("app") tokens
-        # even for a genuinely public playlist, while a real user
-        # (Authorization Code / PKCE) token succeeds. Playlist IDs in this
-        # set 403 the /tracks call unless the request carries the fixture's
-        # "fake-user-token" (i.e. came from `refresh_pkce_token`).
+        # Live-verified (2026-09-14, against the real Spotify API), in two
+        # parts:
+        # 1. The legacy `/playlists/{id}/tracks` endpoint is now dead for
+        #    everyone — 403 regardless of token type. Groovarr no longer
+        #    calls it at all (see `SpotifyClient.get_playlist_tracks`), so
+        #    this fixture doesn't model it either; only `/items` is served.
+        # 2. `/playlists/{id}/items` (the replacement) can still deny
+        #    Client Credentials ("app") tokens for a genuinely public
+        #    playlist while a real user (Authorization Code / PKCE) token
+        #    succeeds against the exact same playlist. Playlist IDs in this
+        #    set 403 the /items call unless the request carries the
+        #    fixture's "fake-user-token" (i.e. came from `refresh_pkce_token`).
         self.deny_tracks_for_app_token: set[str] = set()
 
     def set_playlist(self, playlist_id: str, *, name: str, snapshot_id: str, images: list[dict] | None = None) -> None:
@@ -54,7 +60,7 @@ class FakeSpotifyBackend:
             return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 3600})
 
         base = url.split("?")[0]
-        if match := _TRACKS_RE.match(base):
+        if match := _ITEMS_RE.match(base):
             playlist_id = match.group(1)
             tracks = self.playlist_tracks.get(playlist_id)
             if tracks is None:
@@ -62,7 +68,9 @@ class FakeSpotifyBackend:
             auth = request.headers.get("authorization", "")
             if playlist_id in self.deny_tracks_for_app_token and auth != "Bearer fake-user-token":
                 return httpx.Response(403, json={"error": {"status": 403, "message": "Forbidden"}})
-            items = [{"track": t} for t in tracks]
+            # Real shape (live-verified): the track payload is nested under
+            # "item", not "track" — same inner fields either way.
+            items = [{"item": t} for t in tracks]
             return httpx.Response(200, json={"items": items, "next": None})
 
         if match := _PLAYLIST_RE.match(base):

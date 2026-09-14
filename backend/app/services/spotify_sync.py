@@ -164,10 +164,13 @@ async def sync_playlist(
     position = 0
 
     for item in raw_items:
-        raw_track = item.get("track")
-        # Removed/unavailable tracks and local files carry no usable Spotify
-        # track object — skip them rather than raising, they simply don't
-        # occupy a playlist slot.
+        # `/playlists/{id}/items` (the now-required replacement for the
+        # dead `/tracks` endpoint, see client.py) nests the track object
+        # under `.item`, not `.track` — same inner shape, different key.
+        raw_track = item.get("item")
+        # Removed/unavailable tracks, episodes, and local files carry no
+        # usable Spotify track object — skip them rather than raising, they
+        # simply don't occupy a playlist slot.
         if not raw_track or raw_track.get("is_local") or not raw_track.get("id"):
             continue
 

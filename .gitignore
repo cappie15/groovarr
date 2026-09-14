@@ -49,3 +49,4 @@ frontend/build/
 .DS_Store
 Thumbs.db
 docker/tls-proxy/
+docker/config/
