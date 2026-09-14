@@ -22,6 +22,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/playlists/liked-songs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Connect Liked Songs Endpoint
+         * @description Connect Spotify's "Liked Songs" (Saved Tracks) — a distinct endpoint
+         *     from `POST /api/playlists` since there is no URL/ID to parse for it (it's
+         *     reached via `GET /me/tracks`, not `/playlists/{id}`). Requires "Connect
+         *     your Spotify account" (PKCE) to already be completed in Settings: Liked
+         *     Songs is private, user-specific data that Client Credentials (app-only)
+         *     auth can never read, so that's checked up front and reported as a clean
+         *     403 rather than failing confusingly partway through a sync.
+         */
+        post: operations["connect_liked_songs_endpoint_api_playlists_liked_songs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/playlists/{spotify_id}/sync": {
         parameters: {
             query?: never;
@@ -1072,6 +1098,8 @@ export interface components {
             spotify_id: string;
             /** Name */
             name: string;
+            /** Is Liked Songs */
+            is_liked_songs: boolean;
             /** Connected */
             connected: boolean;
             /** Finalized */
@@ -1351,6 +1379,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connect_liked_songs_endpoint_api_playlists_liked_songs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaylistOut"];
                 };
             };
         };

@@ -11,6 +11,7 @@ import httpx
 _TOKEN_URL = "https://accounts.spotify.com/api/token"
 _PLAYLIST_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)$")
 _ITEMS_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)/items")
+_SAVED_TRACKS_RE = re.compile(r"https://api\.spotify\.com/v1/me/tracks")
 _IMAGE_RE = re.compile(r"https://fake-image\.test/(.+)")
 
 # A syntactically-valid, tiny JPEG (the real Phase 2/6 artwork-caching code
@@ -43,6 +44,24 @@ class FakeSpotifyBackend:
         #    fixture's "fake-user-token" (i.e. came from `refresh_pkce_token`).
         self.deny_tracks_for_app_token: set[str] = set()
 
+        # Liked Songs ("Saved Tracks", GET /me/tracks) fixture state.
+        # `None` (the default) means "not configured" -> 404, matching the
+        # rest of this fixture's style of only serving what a test set up.
+        self.saved_tracks: list[dict] | None = None
+        # When set, paginate /me/tracks in chunks of this size (using
+        # limit/offset, mirroring Spotify's real scheme) instead of returning
+        # everything in one page — lets a test actually exercise the `next`
+        # pagination-follow loop in SpotifyClient.get_saved_tracks.
+        self.saved_tracks_page_size: int | None = None
+        # Live-verified-shaped scenario: a PKCE token minted before
+        # `user-library-read` was added to the authorize URL's scope list
+        # (see app/integrations/spotify/pkce.py) gets a 403 from Spotify on
+        # /me/tracks specifically, even though the same token works fine for
+        # playlist reads. Distinct flag from `deny_tracks_for_app_token`
+        # (which is playlist-ID-keyed and about app-vs-user tokens) since
+        # this is scope-keyed and applies regardless of which token is used.
+        self.deny_saved_tracks_missing_scope: bool = False
+
     def set_playlist(self, playlist_id: str, *, name: str, snapshot_id: str, images: list[dict] | None = None) -> None:
         self.playlists[playlist_id] = {
             "id": playlist_id,
@@ -56,6 +75,15 @@ class FakeSpotifyBackend:
     def set_tracks(self, playlist_id: str, tracks: list[dict]) -> None:
         self.playlist_tracks[playlist_id] = tracks
 
+    def set_saved_tracks(self, tracks: list[dict], *, page_size: int | None = None) -> None:
+        """Configure the Liked Songs ("Saved Tracks") library. `tracks` are
+        raw Spotify track objects (e.g. from `make_track`) — this fixture
+        wraps each in the real `{"added_at": ..., "track": {...}}` saved-
+        track-object shape itself, same as the real `/me/tracks` response.
+        """
+        self.saved_tracks = tracks
+        self.saved_tracks_page_size = page_size
+
     def handler(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
 
@@ -66,6 +94,30 @@ class FakeSpotifyBackend:
             return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 3600})
 
         base = url.split("?")[0]
+        if _SAVED_TRACKS_RE.match(base):
+            if self.saved_tracks is None:
+                return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+            auth = request.headers.get("authorization", "")
+            if auth != "Bearer fake-user-token":
+                # Liked Songs is inherently private, user-specific data —
+                # Groovarr must never call this with an app-only token; if it
+                # somehow did, the real API would deny it too.
+                return httpx.Response(403, json={"error": {"status": 403, "message": "Forbidden"}})
+            if self.deny_saved_tracks_missing_scope:
+                return httpx.Response(
+                    403, json={"error": {"status": 403, "message": "Insufficient client scope"}}
+                )
+            offset = int(request.url.params.get("offset", "0"))
+            page_size = self.saved_tracks_page_size or len(self.saved_tracks)
+            page = self.saved_tracks[offset : offset + page_size]
+            next_url = None
+            if offset + page_size < len(self.saved_tracks):
+                next_url = (
+                    f"https://api.spotify.com/v1/me/tracks?limit={page_size}&offset={offset + page_size}"
+                )
+            items = [{"added_at": "2024-01-01T00:00:00Z", "track": t} for t in page]
+            return httpx.Response(200, json={"items": items, "next": next_url})
+
         if match := _ITEMS_RE.match(base):
             playlist_id = match.group(1)
             tracks = self.playlist_tracks.get(playlist_id)

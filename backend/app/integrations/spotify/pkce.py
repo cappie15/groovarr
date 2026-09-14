@@ -16,9 +16,21 @@ import secrets
 SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 
 # playlist-read-private + playlist-read-collaborative (§3) — enough to read
-# the owner's own private/collaborative playlists; nothing broader is
+# the owner's own private/collaborative playlists — plus user-library-read,
+# needed for "Liked Songs" (GET /me/tracks, see
+# app/integrations/spotify/client.py's get_saved_tracks): Liked Songs is
+# inherently private, user-specific data, so no scope short of this one can
+# ever read it, regardless of auth mode. Nothing broader than these three is
 # requested.
-SPOTIFY_SCOPES = "playlist-read-private playlist-read-collaborative"
+#
+# A token issued before this scope was added here (i.e. under the old
+# two-scope list) does NOT retroactively gain it — Spotify scopes are fixed
+# at authorization time, so an existing PKCE connection must be redone
+# ("Connect your Spotify account" again) before Liked Songs will work; until
+# then, Spotify denies /me/tracks with 403 and Groovarr surfaces that as a
+# clear, actionable SpotifyAccessDeniedError rather than crashing (see
+# get_saved_tracks and services/spotify_sync.connect_liked_songs).
+SPOTIFY_SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
 
 
 def generate_code_verifier() -> str:

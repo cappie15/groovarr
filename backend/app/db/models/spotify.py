@@ -14,6 +14,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+# Spotify's "Liked Songs" (Saved Tracks) has no playlist ID at all — it's
+# reached via `GET /me/tracks`, never `/playlists/{id}` (see
+# app/integrations/spotify/client.py's `get_saved_tracks`). Rather than fork
+# a parallel model/sync path for it, it's represented as a single
+# `SpotifyPlaylist` row with this sentinel `spotify_id` — the existing unique
+# constraint on `spotify_id` is exactly what guarantees at most one such row
+# can ever exist, for free. `is_liked_songs` is a separate, explicit flag
+# (rather than callers comparing `spotify_id == LIKED_SONGS_SPOTIFY_ID`
+# everywhere) so the special-casing in services/API/frontend code reads as
+# intent, not a magic-string check.
+LIKED_SONGS_SPOTIFY_ID = "__liked_songs__"
+
 
 class SpotifyPlaylist(Base):
     __tablename__ = "spotify_playlists"
@@ -22,8 +34,19 @@ class SpotifyPlaylist(Base):
     spotify_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
 
+    # True for exactly the one sentinel row (spotify_id == LIKED_SONGS_SPOTIFY_ID)
+    # representing Spotify's "Liked Songs". See LIKED_SONGS_SPOTIFY_ID above.
+    is_liked_songs: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Cheap change-detection signal from Spotify — re-fetch/re-diff the track
     # list only when this differs from the last-seen value (§3/§7).
+    # Liked Songs has no such signal at all (there is no snapshot_id concept
+    # for /me/tracks) — this stays permanently None for that row, which
+    # naturally makes `sync_playlist`'s `snapshot_id is not None` short-
+    # circuit check always false for it, i.e. every sync always re-fetches
+    # and diffs. That's the correct, and only available, strategy here: there
+    # is no cheaper signal to poll instead, and Saved Tracks libraries are
+    # not expected to be so large that a full re-fetch/diff is a real cost.
     snapshot_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     connected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

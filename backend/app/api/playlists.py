@@ -21,7 +21,7 @@ from app.integrations.spotify.errors import (
     SpotifyRateLimitedError,
 )
 from app.services.external_playlists import resolve_playlist_collision, sync_external_playlist
-from app.services.spotify_sync import connect_playlist, disconnect_playlist, sync_playlist
+from app.services.spotify_sync import connect_liked_songs, connect_playlist, disconnect_playlist, sync_playlist
 
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
 
@@ -33,6 +33,7 @@ class ConnectPlaylistRequest(BaseModel):
 class PlaylistOut(BaseModel):
     spotify_id: str
     name: str
+    is_liked_songs: bool
     connected: bool
     finalized: bool
     sync_interval_hours: int
@@ -49,6 +50,7 @@ def _to_out(playlist: SpotifyPlaylist) -> PlaylistOut:
     return PlaylistOut(
         spotify_id=playlist.spotify_id,
         name=playlist.name,
+        is_liked_songs=playlist.is_liked_songs,
         connected=playlist.connected,
         finalized=playlist.finalized_at is not None,
         sync_interval_hours=playlist.sync_interval_hours,
@@ -96,6 +98,35 @@ async def connect(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SpotifyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SpotifyAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except SpotifyAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except SpotifyRateLimitedError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    await session.refresh(playlist, attribute_names=["entries"])
+    return _to_out(playlist)
+
+
+@router.post("/liked-songs", response_model=PlaylistOut, status_code=201)
+async def connect_liked_songs_endpoint(
+    session: AsyncSession = Depends(get_session),
+    http: httpx.AsyncClient = Depends(get_http_client),
+) -> PlaylistOut:
+    """Connect Spotify's "Liked Songs" (Saved Tracks) — a distinct endpoint
+    from `POST /api/playlists` since there is no URL/ID to parse for it (it's
+    reached via `GET /me/tracks`, not `/playlists/{id}`). Requires "Connect
+    your Spotify account" (PKCE) to already be completed in Settings: Liked
+    Songs is private, user-specific data that Client Credentials (app-only)
+    auth can never read, so that's checked up front and reported as a clean
+    403 rather than failing confusingly partway through a sync.
+    """
+    try:
+        playlist = await connect_liked_songs(session, http)
+    except ValueError as exc:
+        # PlaylistAlreadyFinalizedError is a ValueError subclass.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SpotifyAccessDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except SpotifyAuthError as exc:

@@ -10,7 +10,7 @@ from app.db.models.history import HistoryEvent
 from app.db.models.lyrics import Lyrics, LyricsKind
 from app.db.models.media import MediaAsset, MediaState, PlaylistMediaReference, SyncStatus
 from app.db.models.settings import AppSettings
-from app.db.models.spotify import PlaylistEntry, SpotifyPlaylist, Track
+from app.db.models.spotify import LIKED_SONGS_SPOTIFY_ID, PlaylistEntry, SpotifyPlaylist, Track
 
 __all__ = [
     "AppSettings",
@@ -20,6 +20,7 @@ __all__ = [
     "ExternalPlaylist",
     "ExternalPlaylistSyncState",
     "HistoryEvent",
+    "LIKED_SONGS_SPOTIFY_ID",
     "Lyrics",
     "LyricsKind",
     "MediaAsset",

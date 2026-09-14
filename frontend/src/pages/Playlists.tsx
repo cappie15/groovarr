@@ -3,6 +3,7 @@ import {
   type ExternalPlaylistOut,
   type ExternalPlatform,
   type PlaylistOut,
+  connectLikedSongs,
   connectPlaylist,
   disconnectPlaylist,
   getExternalStatus,
@@ -195,6 +196,47 @@ function ConnectPlaylistForm({ onConnected }: { onConnected: () => void }) {
   );
 }
 
+/** "Liked Songs" has no URL/ID to paste into `ConnectPlaylistForm` — it's
+ * reached via a dedicated POST /api/playlists/liked-songs instead (backend
+ * §background). Reuses the same button styling/error-handling pattern as
+ * the rest of this page rather than introducing a new form. */
+function ConnectLikedSongsButton({
+  alreadyConnected,
+  onConnected,
+}: {
+  alreadyConnected: boolean;
+  onConnected: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function connect() {
+    setBusy(true);
+    try {
+      await connectLikedSongs();
+      toast.showInfo('Liked Songs connected.');
+      onConnected();
+    } catch (err) {
+      toast.showError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (alreadyConnected) {
+    return null;
+  }
+
+  return (
+    <div className="field" style={{ marginBottom: 20 }}>
+      <button type="button" className="btn" disabled={busy} onClick={connect}>
+        {busy ? 'Connecting…' : 'Connect Liked Songs'}
+      </button>
+      <span className="subtle-note">Requires Spotify connected via Settings (not just Client Credentials).</span>
+    </div>
+  );
+}
+
 function DisconnectConfirmModal({
   playlist,
   onCancel,
@@ -252,6 +294,7 @@ export default function Playlists() {
     () => (data ?? []).filter((p) => p.jellyfin_enabled || p.plex_enabled),
     [data],
   );
+  const likedSongsConnected = useMemo(() => (data ?? []).some((p) => p.is_liked_songs), [data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -386,6 +429,7 @@ export default function Playlists() {
       </div>
 
       <ConnectPlaylistForm onConnected={refetch} />
+      <ConnectLikedSongsButton alreadyConnected={likedSongsConnected} onConnected={refetch} />
 
       {error && <ErrorBanner message={`Failed to load playlists: ${error}`} onRetry={refetch} />}
 

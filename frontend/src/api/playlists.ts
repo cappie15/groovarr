@@ -24,6 +24,17 @@ export function connectPlaylist(urlOrId: string, options?: RequestOptions): Prom
   return apiClient.post<PlaylistOut>('/playlists', { url_or_id: urlOrId }, options);
 }
 
+/** POST /api/playlists/liked-songs — connects Spotify's "Liked Songs" (Saved
+ * Tracks) as its own pseudo-playlist. Distinct from `connectPlaylist` since
+ * there's no URL/ID to give it. Requires "Connect your Spotify account"
+ * (PKCE) already completed in Settings — Liked Songs is private, per-user
+ * data that the default Client Credentials mode can never read, so this
+ * fails with a clear 403 rather than a confusing error if that isn't done
+ * yet. */
+export function connectLikedSongs(options?: RequestOptions): Promise<PlaylistOut> {
+  return apiClient.post<PlaylistOut>('/playlists/liked-songs', undefined, options);
+}
+
 /** POST /api/playlists/{spotify_id}/sync */
 export function syncPlaylistNow(spotifyId: string, options?: RequestOptions): Promise<PlaylistOut> {
   return apiClient.post<PlaylistOut>(`/playlists/${encodeURIComponent(spotifyId)}/sync`, undefined, options);

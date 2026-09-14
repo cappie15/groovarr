@@ -11,6 +11,7 @@ import random
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 import structlog
@@ -21,7 +22,7 @@ from app.core.config import get_settings
 from app.core.secrets import decrypt_secret
 from app.db.models.external_playlist import ExternalPlatform
 from app.db.models.media import MediaAsset, PlaylistMediaReference
-from app.db.models.spotify import PlaylistEntry, SpotifyPlaylist, Track
+from app.db.models.spotify import LIKED_SONGS_SPOTIFY_ID, PlaylistEntry, SpotifyPlaylist, Track
 from app.domain.reference_counting import ensure_reference
 from app.integrations.spotify.client import SpotifyClient
 from app.integrations.spotify.errors import SpotifyAccessDeniedError, SpotifyReauthRequiredError
@@ -92,6 +93,55 @@ async def connect_playlist(session: AsyncSession, http: httpx.AsyncClient, url_o
     return playlist
 
 
+async def connect_liked_songs(session: AsyncSession, http: httpx.AsyncClient) -> SpotifyPlaylist:
+    """Connect Spotify's "Liked Songs" (Saved Tracks) as a special
+    pseudo-playlist row (see `LIKED_SONGS_SPOTIFY_ID`), distinct from
+    `connect_playlist` because there is no URL/ID to parse — Liked Songs is
+    reached via `GET /me/tracks`, never `/playlists/{id}`. Idempotent, same
+    as `connect_playlist`: calling this again just returns the existing row.
+
+    Liked Songs is inherently private, user-specific data — Spotify's
+    Client Credentials (app-only) mode can *never* read it, for any account,
+    public-playlist-style fallback or not. So unlike a regular playlist
+    (which only needs the optional PKCE "Connect your Spotify account"
+    feature for private/collaborative playlists, or in practice today for
+    any playlist's tracks per §2-E), Liked Songs flatly requires it to
+    already be enabled and completed — checked up front here so a user who
+    hasn't set it up gets one clear, actionable 4xx instead of a confusing
+    failure partway through a sync.
+    """
+    existing = await session.scalar(
+        select(SpotifyPlaylist).where(SpotifyPlaylist.spotify_id == LIKED_SONGS_SPOTIFY_ID)
+    )
+    if existing is not None:
+        if existing.finalized_at is not None:
+            raise PlaylistAlreadyFinalizedError(
+                "Liked Songs was previously disconnected/finalized and cannot be reconnected."
+            )
+        return existing
+
+    settings_row = await get_app_settings(session)
+    if not settings_row.spotify_user_oauth_enabled or not settings_row.spotify_refresh_token_encrypted:
+        raise SpotifyAccessDeniedError(
+            "Liked Songs is private, user-specific Spotify data — it can never be read via "
+            'Client Credentials (app-only) auth. Complete "Connect your Spotify account" in '
+            "Settings first, then try connecting Liked Songs again."
+        )
+
+    playlist = SpotifyPlaylist(
+        spotify_id=LIKED_SONGS_SPOTIFY_ID,
+        name="Liked Songs",
+        is_liked_songs=True,
+        connected=True,
+        sync_interval_hours=settings_row.default_sync_interval_hours,
+    )
+    session.add(playlist)
+    await session.flush()
+
+    await sync_playlist(session, http, playlist, force=True)
+    return playlist
+
+
 async def sync_playlist(
     session: AsyncSession, http: httpx.AsyncClient, playlist: SpotifyPlaylist, *, force: bool = False
 ) -> SyncResult:
@@ -99,19 +149,38 @@ async def sync_playlist(
     is unchanged), normalize tracks, and fully replace this playlist's
     `PlaylistEntry` rows to exactly match the current Spotify order —
     including duplicate occurrences of the same track (§12).
+
+    Liked Songs (`playlist.is_liked_songs`) flows through this exact same
+    function rather than a parallel code path — it only diverges at the two
+    points where it genuinely must: how the access token is obtained (always
+    PKCE, never Client Credentials — see `connect_liked_songs`) and which
+    Spotify endpoint/response shape supplies the raw track items. Everything
+    downstream (track upsert, full-replace diffing, reference reconciliation,
+    external-playlist sync) is identical.
     """
     client = SpotifyClient(http)
     creds = await get_effective_spotify_credentials(session)
-    access_token = await client.get_app_access_token(creds.client_id, creds.client_secret)
 
-    try:
-        playlist_data = await client.get_playlist(playlist.spotify_id, access_token)
-    except SpotifyAccessDeniedError:
-        # Default (Client Credentials) auth can only read public/unlisted
-        # playlists — a 401/403 here means this one is private/collaborative,
-        # so fall back to the optional PKCE user token if it's set up (§2-E).
+    if playlist.is_liked_songs:
+        # Inherently private, user-specific data — there is no app-only path
+        # that could ever work, so go straight to the PKCE user token rather
+        # than attempting (and always failing) a Client Credentials call
+        # first like a regular playlist does.
         access_token = await _get_user_access_token(session, http, client)
-        playlist_data = await client.get_playlist(playlist.spotify_id, access_token)
+        # No `/playlists/{id}`-equivalent metadata call exists for Liked
+        # Songs — name is fixed, and there is no snapshot_id (see the field
+        # comment on SpotifyPlaylist.snapshot_id for why that's fine).
+        playlist_data: dict[str, Any] = {"name": "Liked Songs", "snapshot_id": None, "images": []}
+    else:
+        access_token = await client.get_app_access_token(creds.client_id, creds.client_secret)
+        try:
+            playlist_data = await client.get_playlist(playlist.spotify_id, access_token)
+        except SpotifyAccessDeniedError:
+            # Default (Client Credentials) auth can only read public/unlisted
+            # playlists — a 401/403 here means this one is private/collaborative,
+            # so fall back to the optional PKCE user token if it's set up (§2-E).
+            access_token = await _get_user_access_token(session, http, client)
+            playlist_data = await client.get_playlist(playlist.spotify_id, access_token)
 
     new_snapshot_id = playlist_data.get("snapshot_id")
 
@@ -120,22 +189,25 @@ async def sync_playlist(
         await session.commit()
         return SyncResult(unchanged=True, tracks_upserted=0, entries_written=0)
 
-    try:
-        raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
-    except SpotifyAccessDeniedError:
-        # LIVE-VERIFIED (2026-09-14, against a real, genuinely-public
-        # playlist): Spotify's Client Credentials flow can read a playlist's
-        # own metadata (the `get_playlist` call above, which only requests
-        # id/name/snapshot_id/images/public/collaborative) but denies the
-        # *track-listing* sub-resource outright — 403, even for a public,
-        # non-collaborative playlist. This is NOT limited to private/
-        # collaborative playlists as originally assumed from documentation;
-        # it fires far more often than the fallback above, and PKCE is
-        # effectively required to read ANY playlist's tracks today, not just
-        # private ones. `access_token` may already be a user token here (if
-        # the metadata call above also fell back) — re-fetching is harmless.
-        access_token = await _get_user_access_token(session, http, client)
-        raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
+    if playlist.is_liked_songs:
+        raw_items = await client.get_saved_tracks(access_token)
+    else:
+        try:
+            raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
+        except SpotifyAccessDeniedError:
+            # LIVE-VERIFIED (2026-09-14, against a real, genuinely-public
+            # playlist): Spotify's Client Credentials flow can read a playlist's
+            # own metadata (the `get_playlist` call above, which only requests
+            # id/name/snapshot_id/images/public/collaborative) but denies the
+            # *track-listing* sub-resource outright — 403, even for a public,
+            # non-collaborative playlist. This is NOT limited to private/
+            # collaborative playlists as originally assumed from documentation;
+            # it fires far more often than the fallback above, and PKCE is
+            # effectively required to read ANY playlist's tracks today, not just
+            # private ones. `access_token` may already be a user token here (if
+            # the metadata call above also fell back) — re-fetching is harmless.
+            access_token = await _get_user_access_token(session, http, client)
+            raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
 
     playlist.name = playlist_data.get("name") or playlist.name
     playlist.snapshot_id = new_snapshot_id
@@ -167,8 +239,9 @@ async def sync_playlist(
     for item in raw_items:
         # `/playlists/{id}/items` (the now-required replacement for the
         # dead `/tracks` endpoint, see client.py) nests the track object
-        # under `.item`, not `.track` — same inner shape, different key.
-        raw_track = item.get("item")
+        # under `.item`, not `.track`; `/me/tracks` (Liked Songs) nests it
+        # under `.track` instead — same inner shape either way.
+        raw_track = item.get("track") if playlist.is_liked_songs else item.get("item")
         # Removed/unavailable tracks, episodes, and local files carry no
         # usable Spotify track object — skip them rather than raising, they
         # simply don't occupy a playlist slot.

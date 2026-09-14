@@ -156,6 +156,56 @@ class SpotifyClient:
 
         return items
 
+    # -- Liked Songs (Saved Tracks) ---------------------------------------------
+
+    async def get_saved_tracks(self, access_token: str) -> list[dict[str, Any]]:
+        """Fetch every item of the user's "Liked Songs" library, following
+        pagination. Each item is the raw Spotify "saved track object"
+        (`{"added_at": ..., "track": {...}}`) — same inner track shape as a
+        playlist item, just nested under `.track` instead of `.item`/`.track`
+        depending on endpoint (see `app/services/spotify_sync.py` for where
+        that's consumed).
+
+        Unlike playlist reads, there is no Client Credentials fallback to
+        even attempt here: `/me/tracks` is inherently private, user-specific
+        data, so `access_token` must always be a genuine PKCE user token —
+        callers never call this with an app-only token (see
+        `app/services/spotify_sync.connect_liked_songs`/`sync_playlist`).
+
+        Requires the `user-library-read` scope. A user token that predates
+        this scope being added to the PKCE authorize URL (see
+        `app/integrations/spotify/pkce.py`) gets denied by Spotify with a 403
+        — surfaced here as `SpotifyAccessDeniedError` with a message telling
+        the user to reconnect, not a bare HTTP error.
+        """
+        items: list[dict[str, Any]] = []
+        url: str | None = f"{API_BASE}/me/tracks"
+        params: dict[str, Any] | None = {"limit": 50}
+
+        while url:
+            response = await self._http.get(url, params=params, headers=_auth_header(access_token))
+            if response.status_code in (401, 403):
+                raise SpotifyAccessDeniedError(
+                    f"Spotify denied the Liked Songs request (HTTP {response.status_code}). This "
+                    "almost always means the connected Spotify account was authorized before Liked "
+                    "Songs support was added and is missing the 'user-library-read' scope — go to "
+                    'Settings and reconnect ("Connect your Spotify account" again) to re-authorize '
+                    "with the new scope."
+                )
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                raise SpotifyRateLimitedError(
+                    "Spotify rate-limited the Liked Songs request",
+                    retry_after=float(retry_after) if retry_after else None,
+                )
+            response.raise_for_status()
+            data = response.json()
+            items.extend(data.get("items", []))
+            url = data.get("next")
+            params = None  # `next` is already a fully-qualified URL with its own query string.
+
+        return items
+
 
 def _auth_header(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}

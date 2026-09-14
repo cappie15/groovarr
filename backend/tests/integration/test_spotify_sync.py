@@ -12,14 +12,20 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db.models.media import MediaAsset, MediaState, PlaylistMediaReference
-from app.db.models.spotify import PlaylistEntry, SpotifyPlaylist, Track
+from app.db.models.spotify import LIKED_SONGS_SPOTIFY_ID, PlaylistEntry, SpotifyPlaylist, Track
 from app.integrations.spotify.errors import SpotifyAccessDeniedError
 from app.services.settings_service import (
     set_spotify_client_credentials,
     set_spotify_user_oauth_enabled,
     store_spotify_user_refresh_token,
 )
-from app.services.spotify_sync import connect_playlist, disconnect_playlist, sync_playlist
+from app.services.spotify_sync import (
+    PlaylistAlreadyFinalizedError,
+    connect_liked_songs,
+    connect_playlist,
+    disconnect_playlist,
+    sync_playlist,
+)
 from tests.fixtures.spotify_backend import FakeSpotifyBackend, make_track, playlist_id
 
 
@@ -455,3 +461,194 @@ async def test_sync_caches_both_playlist_and_track_artwork(db_session, tmp_path,
     assert no_art.album_artwork_path is None
 
     get_settings.cache_clear()
+
+
+# --- Liked Songs (Saved Tracks) -----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_connect_liked_songs_requires_pkce_already_enabled(db_session):
+    """Liked Songs is inherently private, user-specific data — Client
+    Credentials (app-only) auth can never read it, so connecting it without
+    "Connect your Spotify account" already completed must fail fast with a
+    clear, actionable error rather than a confusing failure partway through
+    a sync attempt.
+    """
+    await _configure_credentials(db_session)
+    backend = FakeSpotifyBackend()
+
+    async with backend.build_client() as http:
+        with pytest.raises(SpotifyAccessDeniedError) as exc_info:
+            await connect_liked_songs(db_session, http)
+
+    message = str(exc_info.value)
+    assert "Connect your Spotify account" in message
+    assert backend.token_requests == 0  # failed before any network call was made
+
+    all_playlists = (await db_session.execute(select(SpotifyPlaylist))).scalars().all()
+    assert all_playlists == []  # no half-created row left behind
+
+
+@pytest.mark.asyncio
+async def test_connect_liked_songs_success_paginated_fetch_and_sync(db_session):
+    """Successful end-to-end connect: paginated /me/tracks fetch (two pages),
+    normalized into Track rows, and written as ordered PlaylistEntry rows on
+    the sentinel Liked Songs playlist — the same PlaylistEntry pipeline every
+    regular playlist uses.
+    """
+    await _configure_credentials(db_session)
+    await set_spotify_user_oauth_enabled(db_session, True)
+    await store_spotify_user_refresh_token(db_session, "fake-refresh-token")
+
+    backend = FakeSpotifyBackend()
+    backend.set_saved_tracks(
+        [
+            make_track("liked-a", "Liked A"),
+            make_track("liked-b", "Liked B (Remix)", artists=["Artist B", "Featured One"]),
+            make_track("liked-c", "Liked C"),
+        ],
+        page_size=2,  # force the pagination-follow loop to actually run
+    )
+
+    async with backend.build_client() as http:
+        playlist = await connect_liked_songs(db_session, http)
+
+    assert playlist.spotify_id == LIKED_SONGS_SPOTIFY_ID
+    assert playlist.is_liked_songs is True
+    assert playlist.name == "Liked Songs"
+    assert playlist.connected is True
+    assert playlist.snapshot_id is None  # no snapshot_id concept for Liked Songs
+
+    entries = (
+        await db_session.execute(
+            select(PlaylistEntry).where(PlaylistEntry.playlist_id == playlist.id).order_by(PlaylistEntry.position)
+        )
+    ).scalars().all()
+    assert len(entries) == 3  # all three items across both fetched pages landed
+
+    track_b = await db_session.scalar(select(Track).where(Track.spotify_track_id == "liked-b"))
+    assert track_b.canonical_artist == "Artist B"
+    assert track_b.featured_artists == ["Featured One"]
+    assert track_b.parsed_version == "Remix"
+
+
+@pytest.mark.asyncio
+async def test_connect_liked_songs_is_idempotent(db_session):
+    await _configure_credentials(db_session)
+    await set_spotify_user_oauth_enabled(db_session, True)
+    await store_spotify_user_refresh_token(db_session, "fake-refresh-token")
+
+    backend = FakeSpotifyBackend()
+    backend.set_saved_tracks([make_track("liked-x", "Only Liked Song")])
+
+    async with backend.build_client() as http:
+        first = await connect_liked_songs(db_session, http)
+        second = await connect_liked_songs(db_session, http)
+
+    assert first.id == second.id
+    all_liked_rows = (
+        await db_session.execute(select(SpotifyPlaylist).where(SpotifyPlaylist.is_liked_songs.is_(True)))
+    ).scalars().all()
+    assert len(all_liked_rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_liked_songs_resync_always_refetches_since_there_is_no_snapshot_id(db_session):
+    """Unlike a regular playlist, Liked Songs has nothing to short-circuit
+    against — `sync_playlist`'s `snapshot_id is not None` check is always
+    false for it, so a non-forced re-sync must still re-fetch and re-diff
+    (the deliberate strategy documented on SpotifyPlaylist.snapshot_id).
+    """
+    await _configure_credentials(db_session)
+    await set_spotify_user_oauth_enabled(db_session, True)
+    await store_spotify_user_refresh_token(db_session, "fake-refresh-token")
+
+    backend = FakeSpotifyBackend()
+    backend.set_saved_tracks([make_track("liked-1", "First Liked")])
+
+    async with backend.build_client() as http:
+        playlist = await connect_liked_songs(db_session, http)
+
+        backend.set_saved_tracks([make_track("liked-1", "First Liked"), make_track("liked-2", "Second Liked")])
+        result = await sync_playlist(db_session, http, playlist, force=False)
+
+    assert result.unchanged is False
+    assert result.tracks_upserted == 2
+    entries = (
+        await db_session.execute(select(PlaylistEntry).where(PlaylistEntry.playlist_id == playlist.id))
+    ).scalars().all()
+    assert len(entries) == 2
+
+
+@pytest.mark.asyncio
+async def test_liked_songs_missing_scope_surfaces_as_clear_access_denied_error(db_session):
+    """LIVE-VERIFIED-STYLE scenario: a PKCE token issued before
+    `user-library-read` was added to the authorize URL's scope list (see
+    app/integrations/spotify/pkce.py) gets denied by Spotify on /me/tracks
+    specifically — this must surface as a clean SpotifyAccessDeniedError with
+    an actionable "reconnect" message, not a crash or a bare HTTP error.
+    """
+    await _configure_credentials(db_session)
+    await set_spotify_user_oauth_enabled(db_session, True)
+    await store_spotify_user_refresh_token(db_session, "fake-refresh-token")
+
+    backend = FakeSpotifyBackend()
+    backend.set_saved_tracks([make_track("liked-z", "Some Song")])
+    backend.deny_saved_tracks_missing_scope = True
+
+    async with backend.build_client() as http:
+        with pytest.raises(SpotifyAccessDeniedError) as exc_info:
+            await connect_liked_songs(db_session, http)
+
+    message = str(exc_info.value)
+    assert "user-library-read" in message
+    assert "reconnect" in message.lower()
+    # (Rollback-on-error is a real-request behavior provided by FastAPI's
+    # session dependency, not something to re-assert against the bare
+    # `db_session` fixture here — same caveat as
+    # test_tracks_endpoint_access_denied_without_pkce_raises_clear_error above.)
+
+
+@pytest.mark.asyncio
+async def test_liked_songs_disconnect_and_reconnect_rejected(db_session):
+    await _configure_credentials(db_session)
+    await set_spotify_user_oauth_enabled(db_session, True)
+    await store_spotify_user_refresh_token(db_session, "fake-refresh-token")
+
+    backend = FakeSpotifyBackend()
+    backend.set_saved_tracks([make_track("liked-fin", "Finalized Song")])
+
+    async with backend.build_client() as http:
+        playlist = await connect_liked_songs(db_session, http)
+        await disconnect_playlist(db_session, playlist)
+
+        with pytest.raises(PlaylistAlreadyFinalizedError):
+            await connect_liked_songs(db_session, http)
+
+    assert playlist.connected is False
+    assert playlist.finalized_at is not None
+    # Existing entries from before finalization are untouched (§10), same
+    # guarantee as a regular playlist's disconnect.
+    entries = (
+        await db_session.execute(select(PlaylistEntry).where(PlaylistEntry.playlist_id == playlist.id))
+    ).scalars().all()
+    assert len(entries) == 1
+
+
+@pytest.mark.asyncio
+async def test_regular_playlist_connect_by_url_unaffected_by_liked_songs_support(db_session):
+    """Regression guard: adding Liked Songs support must not change a single
+    thing about the ordinary connect-by-URL/ID path for a real playlist.
+    """
+    await _configure_credentials(db_session)
+    pid = playlist_id(40)
+    backend = FakeSpotifyBackend()
+    backend.set_playlist(pid, name="Still Works", snapshot_id="snap-1")
+    backend.set_tracks(pid, [make_track("track-still", "Still Works Song")])
+
+    async with backend.build_client() as http:
+        playlist = await connect_playlist(db_session, http, f"https://open.spotify.com/playlist/{pid}")
+
+    assert playlist.name == "Still Works"
+    assert playlist.is_liked_songs is False
+    assert playlist.spotify_id == pid
