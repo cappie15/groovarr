@@ -50,21 +50,39 @@ FROM brainicism/bgutil-ytdlp-pot-provider:2.0.0-node AS potprovider
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS backend-build
 
+# `uv` — used here purely as a fast, hash-checking installer (see
+# CONTRIBUTING.md for the full dependency-locking workflow and why `uv` was
+# chosen over pip-tools). Copied from Astral's own distroless image per
+# their documented Docker pattern rather than `pip install uv`, so
+# installing `uv` itself doesn't need network access to PyPI at a version
+# pip would freely re-resolve. Pinned to the exact release used to
+# generate backend/uv.lock — bump both together.
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /usr/local/bin/uv
+
 WORKDIR /src/backend
 
 # Copy only what's needed to resolve+build the package (pyproject.toml +
-# the `app` package setuptools packages onto, per
+# uv.lock + the `app` package setuptools packages onto, per
 # `[tool.setuptools.packages.find] include = ["app*"]`) before pulling in
 # the rest of the backend tree, so dependency installation layers cache
 # independently of day-to-day app code changes.
-COPY backend/pyproject.toml ./
+COPY backend/pyproject.toml backend/uv.lock ./
 COPY backend/app ./app
 
-# Install into a throwaway prefix so only the resulting site-packages (not
-# pip's cache, build tooling, etc.) gets copied into the final stage.
-# Runtime deps only — the `dev` extra (pytest/ruff/httpx) is intentionally
-# left out of the shipped image.
-RUN pip install --no-cache-dir --prefix=/install .
+# Resolve the exact, hash-verified versions recorded in uv.lock (`--frozen`
+# fails the build outright if pyproject.toml and uv.lock have drifted,
+# rather than silently re-resolving) into a plain pip-style requirements
+# file, then install both that and the local project into a throwaway
+# prefix so only the resulting site-packages (not uv's cache, build
+# tooling, etc.) gets copied into the final stage. `uv export` is the
+# documented bridge from a uv project lockfile to tooling that expects a
+# requirements.txt shape — needed here because the final stage's
+# `--prefix=/install` layout (copied wholesale into the final image's
+# `/usr/local`, see below) isn't a uv-managed venv. Runtime deps only —
+# the `dev` extra (pytest/ruff/httpx) is intentionally left out of the
+# shipped image.
+RUN uv export --frozen --no-dev --no-emit-project -o requirements.txt \
+    && uv pip install --system --no-cache --prefix=/install -r requirements.txt .
 
 # ---------------------------------------------------------------------------
 # Stage 4: final runtime image

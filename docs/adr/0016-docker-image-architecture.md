@@ -10,9 +10,11 @@ a normal install — SQLite plus one application process should be enough.
 
 ## Decision
 
-`docker/Dockerfile` is a three-stage build: stage 1 builds the frontend (`node:20-slim`, `npm run
-build` → `frontend/dist`), stage 2 installs the backend's Python dependencies
-(`python:3.12-slim`, `pip install --prefix=/install .`), and the final stage assembles both into a
+`docker/Dockerfile` is a multi-stage build: one stage builds the frontend (`node:20-slim`, `npm
+run build` → `frontend/dist`), another installs the backend's Python dependencies
+(`python:3.12-slim`, `uv export` + `uv pip install --prefix=/install` from `backend/uv.lock` for a
+reproducible, hash-verified install — see CONTRIBUTING.md's "Dependency locking" section), and the
+final stage assembles both into a
 minimal `python:3.12-slim` runtime image, running as a fixed-uid non-root user, with `ffmpeg`
 installed via apt (see [ADR 0008](0008-ffmpeg-strategy.md) for the resulting license
 consequence), a `HEALTHCHECK` against `/health`, and `docker/entrypoint.sh` running `alembic
@@ -25,8 +27,11 @@ service, matching `docker/docker-compose.yml`'s single `groovarr` service.
 
 - The `/config`, `/music-videos`, and `/downloads` volumes are the only state that needs to
   survive a container recreation — everything else is rebuilt from the image.
-- No Docker daemon was available during development, so the actual `docker build`/`docker compose
-  up` flow has been verified by static analysis of the Dockerfile/compose logic and by replicating
-  its build+run steps manually (frontend build, backend install, migrate, boot, curl), but never by
-  an actual container run — this is the one part of the stack still awaiting a real end-to-end
-  confirmation on a machine with Docker installed.
+- Originally, no Docker daemon was available during development, so the `docker build`/`docker
+  compose up` flow could only be verified by static analysis and by replicating its build+run
+  steps manually, never by an actual container run. That gap has since closed: a real `docker
+  build -f docker/Dockerfile .` (all stages, including the lockfile-driven backend-build change
+  above) and a real container run — migrations applying, uvicorn booting, `/health` responding
+  `{"status":"ok",...}`, Docker's own `HEALTHCHECK` reporting `healthy` — have both been confirmed
+  end-to-end, and a live `groovarr` container built from this Dockerfile now runs continuously
+  with a real connected Spotify account and Jellyfin server.

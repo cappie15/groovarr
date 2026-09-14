@@ -19,6 +19,64 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+This gets you a working dev environment fast, but `pyproject.toml`'s dependencies are deliberately
+loose ranges (e.g. `fastapi>=0.115,<1.0`) so day-to-day installs aren't forever pinned to whatever
+was newest the day a dependency was added — which means a plain `pip install -e .` run today can
+resolve different exact versions than the same command run last month (this has already caused
+real, if minor, version drift during this project's own development). `backend/uv.lock` exists to
+make *reproducible* installs (CI, Docker image builds, "why does it work on my machine")
+possible on top of those ranges — see below.
+
+## Dependency locking (`uv.lock`)
+
+The backend dependency set is locked with [`uv`](https://docs.astral.sh/uv/) into
+`backend/uv.lock`, which pins every dependency (direct and transitive) to an exact,
+hash-verified version consistent with the ranges in `pyproject.toml`. `docker/Dockerfile`'s
+backend-build stage installs from this lockfile (via `uv export`), so a production image build is
+byte-for-byte reproducible against a given commit rather than re-resolving ranges at build time.
+
+**Why `uv` over `pip-tools`**: this is already a `pyproject.toml`-based package (not a bare
+`requirements.txt` project), and `uv lock` operates directly on it with one command and no
+separate `requirements.in`/`requirements.txt` split to keep in sync — less ceremony than
+`pip-compile` for the same guarantee. It's also simply fast (the initial lock and every
+`uv sync` in this repo took well under a second). Nothing else in the project depends on `uv`
+day-to-day — the venv/`pip install -e ".[dev]"` workflow above still works unchanged; `uv` is an
+added reproducibility layer, not a replacement for it.
+
+Install `uv` once (see [astral.sh/uv/install](https://docs.astral.sh/uv/getting-started/installation/)):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Adding or updating a dependency**:
+
+1. Edit the version range in `backend/pyproject.toml` as usual (`[project.dependencies]` or the
+   `dev` extra).
+2. Regenerate the lock from `backend/`:
+
+   ```bash
+   cd backend
+   uv lock
+   ```
+
+3. Verify the new lock actually installs and the test suite passes against it:
+
+   ```bash
+   uv sync --frozen --extra dev
+   source .venv/bin/activate   # if not already using uv run
+   pytest
+   ruff check .
+   ```
+
+4. Commit both the `pyproject.toml` change and the updated `uv.lock` together — a `pyproject.toml`
+   change without a matching lock update means the Docker image build (which uses `--frozen` and
+   fails outright on drift) is now out of date with the source of truth.
+
+`uv sync --frozen` (used above and by CI) refuses to install if `pyproject.toml` and `uv.lock`
+have diverged, rather than silently re-resolving — that mismatch is exactly the failure mode this
+lockfile exists to catch.
+
 **Frontend** (Node 20+):
 
 ```bash
