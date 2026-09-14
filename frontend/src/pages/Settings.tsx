@@ -607,7 +607,10 @@ function DownloadSection({ settings, onSaved }: { settings: SettingsOut; onSaved
   }
 
   return (
-    <SettingsSection title="Download" hint="Bounded concurrency for the acquisition worker pool, and how many attempts a track gets before it lands on Download Failed.">
+    <SettingsSection
+      title="Download"
+      hint="Bounded concurrency for the acquisition worker pool, and how many attempts a track gets before it lands on Download Failed. If Hardware Acceleration (below) is genuinely available, transcoding is dramatically faster than software-only encoding — you may be able to raise this without the CPU contention that limited it before."
+    >
       <div className="settings-section__row">
         <div className="field">
           <label htmlFor="max-concurrent">Max concurrent downloads</label>

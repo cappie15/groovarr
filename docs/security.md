@@ -90,6 +90,36 @@ httpx.AsyncClient(timeout=...)` sites in `acquisition.py`, `replacement.py`,
   ever becomes part of *which host* is contacted, only query parameters sent
   to it.
 
+## Reverse-proxy trust (added post-Phase-10, live-verified need)
+
+**Checked:** `docker/entrypoint.sh`'s uvicorn invocation flags, added when live
+Spotify testing showed the PKCE flow's `redirect_uri` needs to reflect the
+scheme/host of whatever sits in front of Groovarr, not the plain HTTP address
+uvicorn itself is bound to.
+
+**Deliberate, scoped tradeoff — not an oversight:** uvicorn runs with
+`--proxy-headers --forwarded-allow-ips='*'`, which means Groovarr trusts
+`X-Forwarded-Proto`/`X-Forwarded-Host` from *any* upstream that can reach it,
+not just a specific known reverse-proxy IP. This is acceptable specifically
+because:
+- Groovarr is a single-user, self-hosted app (§98) whose operator controls
+  what network path is allowed to reach it at all — there is no untrusted
+  multi-tenant network sitting between "the internet" and this flag the way
+  there would be for a multi-tenant SaaS.
+- The only consequence of a spoofed `X-Forwarded-*` header is a *wrong URL*
+  being built for Groovarr's own PKCE redirect (which would simply fail the
+  OAuth handshake, not grant access to anything) — it is not used for any
+  authentication or authorization decision.
+- Nothing about this flag interacts with the hardware-acceleration device
+  access added since Phase 10 (`/dev/dri` group membership is a container
+  boot-time OS-level grant, unrelated to per-request header trust).
+
+An operator who puts Groovarr behind a network path they do *not* fully
+control (e.g. a shared reverse-proxy tier they don't administer) should
+narrow `--forwarded-allow-ips` to that proxy's actual address instead of
+`'*'` — noted here so this tradeoff is a documented, revisitable decision
+rather than something a future change could silently regress.
+
 ## Bounded resources
 
 **Checked:** download concurrency (`app/jobs/download_queue.py`), LRCLIB
