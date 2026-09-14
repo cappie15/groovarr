@@ -155,7 +155,7 @@ async def replace_track_media(
     # effort, matching every other media-server touchpoint in the app (§61).
     try:
         async with httpx.AsyncClient(timeout=15.0) as media_server_http:
-            await sync_media_servers_for_asset(session, media_server_http, new_asset)
+            await sync_media_servers_for_asset(session, media_server_http, new_asset, event_type="replacement.replaced")
     except Exception:  # deliberately broad — see module docstring's §48/§61 principle
         logger.exception("replacement.media_server_sync_failed", media_asset_id=new_asset.id)
 

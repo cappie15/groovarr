@@ -475,7 +475,7 @@ async def process_media_asset(session: AsyncSession, asset: MediaAsset) -> Acqui
         # or `attempt.status`.
         try:
             async with httpx.AsyncClient(timeout=15.0) as media_server_http:
-                await sync_media_servers_for_asset(session, media_server_http, asset)
+                await sync_media_servers_for_asset(session, media_server_http, asset, event_type="acquisition.imported")
         except Exception as exc:  # deliberately broad — see module docstring's §48 principle
             logger.warning("acquisition.media_server_sync_failed", media_asset_id=asset.id, error=str(exc))
 

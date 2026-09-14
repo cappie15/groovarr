@@ -16,6 +16,7 @@ export type IconName =
   | 'activity'
   | 'history'
   | 'settings'
+  | 'connect'
   | 'system';
 
 export interface NavItem {
@@ -128,7 +129,14 @@ export const navGroups: NavGroup[] = [
         path: '/settings',
         icon: 'settings',
         description:
-          'Spotify authorization, Jellyfin/Plex connections, naming templates, container/quality policy, and search/acquisition behavior.',
+          'Spotify authorization, Jellyfin/Plex server details, naming templates, container/quality policy, and search/acquisition behavior.',
+      },
+      {
+        label: 'Connect',
+        path: '/connect',
+        icon: 'connect',
+        description:
+          'Named Jellyfin/Plex notification connections, each subscribed to the specific library events that should trigger it — Sonarr/Radarr-style, replacing an always-on implicit refresh with explicit, per-connection control.',
       },
       {
         label: 'System / Status',

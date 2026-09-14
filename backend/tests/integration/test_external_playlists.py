@@ -15,8 +15,10 @@ from sqlalchemy import select
 
 from app.db.models.external_playlist import ExternalPlatform, ExternalPlaylist, ExternalPlaylistSyncState
 from app.db.models.media import MediaAsset, MediaState, PlaylistMediaReference, SyncStatus
+from app.db.models.notification import NotificationProvider
 from app.db.models.spotify import PlaylistEntry, SpotifyPlaylist, Track
 from app.services.external_playlists import sync_external_playlist, sync_media_servers_for_asset
+from app.services.notifications import MEDIA_SERVER_REFRESH_EVENTS, create_connection
 from app.services.settings_service import set_jellyfin_config, set_plex_config
 from tests.fixtures.jellyfin_backend import FakeJellyfinBackend
 from tests.fixtures.plex_backend import FakePlexBackend
@@ -32,6 +34,18 @@ async def _configure_jellyfin(session, *, user_id: str = "user-1", media_path: s
         library_id=None,
         media_path=media_path,
     )
+    # Mirrors the default connection the notification_connections migration
+    # seeds for an already-`jellyfin_enabled` server — a plain
+    # `set_jellyfin_config(enabled=True, ...)` call alone no longer makes
+    # `sync_media_servers_for_asset` refresh anything (see
+    # app.services.notifications).
+    await create_connection(
+        session,
+        name="Jellyfin",
+        provider=NotificationProvider.JELLYFIN,
+        enabled=True,
+        event_types=list(MEDIA_SERVER_REFRESH_EVENTS),
+    )
 
 
 async def _configure_plex(session, *, section_id: str = "1") -> None:
@@ -42,6 +56,13 @@ async def _configure_plex(session, *, section_id: str = "1") -> None:
         token="fake-token",
         library_section_id=section_id,
         media_path=None,
+    )
+    await create_connection(
+        session,
+        name="Plex",
+        provider=NotificationProvider.PLEX,
+        enabled=True,
+        event_types=list(MEDIA_SERVER_REFRESH_EVENTS),
     )
 
 
@@ -294,7 +315,7 @@ async def test_media_server_failure_never_touches_media_state(db_session):
         raise httpx.ConnectError("simulated Jellyfin outage", request=request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(_boom)) as http:
-        await sync_media_servers_for_asset(db_session, http, asset_a)
+        await sync_media_servers_for_asset(db_session, http, asset_a, event_type="acquisition.imported")
 
     await db_session.refresh(asset_a)
     assert asset_a.state == MediaState.AVAILABLE  # completely untouched
@@ -319,7 +340,7 @@ async def test_jellyfin_no_remap_configured_matches_identical_path(db_session):
     backend.add_item(name="Song A", path="/music-videos/a.mp4")  # identical to Groovarr's own local_path
 
     async with backend.build_client() as http:
-        await sync_media_servers_for_asset(db_session, http, asset_a)
+        await sync_media_servers_for_asset(db_session, http, asset_a, event_type="acquisition.imported")
 
     await db_session.refresh(asset_a)
     assert asset_a.jellyfin_sync_status == SyncStatus.SYNCED
@@ -343,7 +364,7 @@ async def test_jellyfin_path_mismatch_without_remap_stays_pending_sync(db_sessio
     backend.add_item(name="Song A", path="/data/library/a.mp4")  # Jellyfin sees a different mount path
 
     async with backend.build_client() as http:
-        await sync_media_servers_for_asset(db_session, http, asset_a)
+        await sync_media_servers_for_asset(db_session, http, asset_a, event_type="acquisition.imported")
 
     await db_session.refresh(asset_a)
     assert asset_a.jellyfin_sync_status == SyncStatus.PENDING_SYNC
@@ -369,7 +390,7 @@ async def test_jellyfin_media_path_remap_translates_path_before_lookup(db_sessio
     backend.add_item(name="Song A", path="/data/library/a.mp4")  # Jellyfin's own view of the same file
 
     async with backend.build_client() as http:
-        await sync_media_servers_for_asset(db_session, http, asset_a)
+        await sync_media_servers_for_asset(db_session, http, asset_a, event_type="acquisition.imported")
 
     await db_session.refresh(asset_a)
     assert asset_a.jellyfin_sync_status == SyncStatus.SYNCED

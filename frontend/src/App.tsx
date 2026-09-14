@@ -10,6 +10,7 @@ import ManualSearch from './pages/ManualSearch';
 import Activity from './pages/Activity';
 import History from './pages/History';
 import Settings from './pages/Settings';
+import Connect from './pages/Connect';
 import System from './pages/System';
 import NotFound from './pages/NotFound';
 
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="/activity" element={<Activity />} />
           <Route path="/history" element={<History />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/connect" element={<Connect />} />
           <Route path="/system" element={<System />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

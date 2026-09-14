@@ -94,6 +94,15 @@ export function Icon({ name }: { name: IconName }) {
           <path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.3 3.7l-1.1 1.1M4.8 11.1l-1.1 1.1M12.3 12.3l-1.1-1.1M4.8 4.9 3.7 3.7" />
         </svg>
       );
+    case 'connect':
+      return (
+        <svg {...common}>
+          <circle cx="3.2" cy="8" r="1.9" />
+          <circle cx="12.8" cy="3.6" r="1.9" />
+          <circle cx="12.8" cy="12.4" r="1.9" />
+          <path d="M5 7.2l6-2.7M5 8.8l6 2.7" />
+        </svg>
+      );
     case 'system':
       return (
         <svg {...common}>

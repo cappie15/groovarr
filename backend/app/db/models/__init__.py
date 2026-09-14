@@ -9,6 +9,7 @@ from app.db.models.external_playlist import ExternalPlatform, ExternalPlaylist, 
 from app.db.models.history import HistoryEvent
 from app.db.models.lyrics import Lyrics, LyricsKind
 from app.db.models.media import MediaAsset, MediaState, PlaylistMediaReference, SyncStatus
+from app.db.models.notification import NotificationConnection, NotificationConnectionEvent, NotificationProvider
 from app.db.models.settings import AppSettings
 from app.db.models.spotify import LIKED_SONGS_SPOTIFY_ID, PlaylistEntry, SpotifyPlaylist, Track
 
@@ -25,6 +26,9 @@ __all__ = [
     "LyricsKind",
     "MediaAsset",
     "MediaState",
+    "NotificationConnection",
+    "NotificationConnectionEvent",
+    "NotificationProvider",
     "PlaylistEntry",
     "PlaylistMediaReference",
     "SpotifyPlaylist",

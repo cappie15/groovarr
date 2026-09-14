@@ -369,7 +369,9 @@ function JellyfinSection({ settings, onSaved }: { settings: SettingsOut; onSaved
 
       <p className="settings-section__hint" style={{ marginTop: 4 }}>
         Whether an individual Spotify playlist generates a Jellyfin playlist is controlled per-playlist on the
-        Playlists page, once Jellyfin is enabled here.
+        Playlists page, once Jellyfin is enabled here. Whether an import/upgrade actually triggers a Jellyfin
+        library refresh is controlled on the <Link to="/connect">Connect</Link> page — this section only configures
+        the server itself.
       </p>
 
       <SaveButton busy={busy} onClick={save} />
@@ -525,8 +527,10 @@ function PlexSection({ settings, onSaved }: { settings: SettingsOut; onSaved: (s
 
       <p className="settings-section__hint" style={{ marginTop: 4 }}>
         Whether an individual Spotify playlist generates a Plex playlist is controlled per-playlist on the Playlists
-        page, once Plex is enabled here. Note: Plex silently collapses duplicate track occurrences within one
-        playlist — this is a Plex limitation, not a Groovarr bug.
+        page, once Plex is enabled here. Whether an import/upgrade actually triggers a Plex library refresh is
+        controlled on the <Link to="/connect">Connect</Link> page — this section only configures the server itself.
+        Note: Plex silently collapses duplicate track occurrences within one playlist — this is a Plex limitation,
+        not a Groovarr bug.
       </p>
 
       <SaveButton busy={busy} onClick={save} />

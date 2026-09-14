@@ -848,6 +848,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notifications/event-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Event Types
+         * @description Every subscribable event type — the real vocabulary already used by
+         *     `app.services.history.record_event`, not a parallel taxonomy. Powers the
+         *     Connect page's per-connection event checkboxes.
+         */
+        get: operations["list_event_types_api_notifications_event_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connections */
+        get: operations["list_connections_api_notifications_get"];
+        put?: never;
+        /** Create Connection */
+        post: operations["create_connection_api_notifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Connection */
+        put: operations["update_connection_api_notifications__connection_id__put"];
+        post?: never;
+        /** Delete Connection */
+        delete: operations["delete_connection_api_notifications__connection_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{connection_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Connection */
+        post: operations["test_connection_api_notifications__connection_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -1141,6 +1216,52 @@ export interface components {
             /** Enabled */
             enabled: boolean;
         };
+        /** NotificationConnectionCreateRequest */
+        NotificationConnectionCreateRequest: {
+            /** Name */
+            name: string;
+            provider: components["schemas"]["NotificationProvider"];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Event Types */
+            event_types?: string[];
+        };
+        /** NotificationConnectionOut */
+        NotificationConnectionOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            provider: components["schemas"]["NotificationProvider"];
+            /** Enabled */
+            enabled: boolean;
+            /** Event Types */
+            event_types: string[];
+        };
+        /** NotificationConnectionUpdateRequest */
+        NotificationConnectionUpdateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Event Types */
+            event_types?: string[] | null;
+        };
+        /** NotificationEventTypeOut */
+        NotificationEventTypeOut: {
+            /** Event Type */
+            event_type: string;
+            /** Label */
+            label: string;
+        };
+        /**
+         * NotificationProvider
+         * @enum {string}
+         */
+        NotificationProvider: "jellyfin" | "plex";
         /** PlaylistOut */
         PlaylistOut: {
             /** Spotify Id */
@@ -2767,6 +2888,176 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["YtdlpVersionStatusOut"];
+                };
+            };
+        };
+    };
+    list_event_types_api_notifications_event_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationEventTypeOut"][];
+                };
+            };
+        };
+    };
+    list_connections_api_notifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationConnectionOut"][];
+                };
+            };
+        };
+    };
+    create_connection_api_notifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationConnectionCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationConnectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connection_api_notifications__connection_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationConnectionUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationConnectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_connection_api_notifications__connection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_connection_api_notifications__connection_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -8,7 +8,15 @@ Two layers, deliberately independent (§61):
   refresh, best-effort-confirms the new file is discoverable, and updates
   ONLY `MediaAsset.jellyfin_sync_status`/`plex_sync_status` — never
   `MediaAsset.state`, so a server outage can never roll back a successful
-  acquisition.
+  acquisition. Which providers it actually notifies is no longer the old
+  unconditional `AppSettings.jellyfin_enabled`/`plex_enabled` check: the
+  caller passes the `event_type` that just occurred (e.g.
+  "acquisition.imported"), and this function only refreshes a provider that
+  has at least one enabled `NotificationConnection` subscribed to that event
+  — see `app.services.notifications`, the Sonarr/Radarr-style "Connect"
+  framework this now goes through. A fresh migration seeds one enabled
+  connection per already-`*_enabled` server, subscribed to exactly the two
+  events this used to fire on, so existing installs see no behavior change.
 - `sync_external_playlist` rebuilds one playlist's membership/order on one
   server from the current `PlaylistEntry`/`PlaylistMediaReference` rows,
   omitting any track that isn't discoverable yet (§27/§28 — no placeholders).
@@ -44,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.models.external_playlist import ExternalPlatform, ExternalPlaylist, ExternalPlaylistSyncState
 from app.db.models.media import MediaAsset, MediaState, PlaylistMediaReference, SyncStatus
+from app.db.models.notification import NotificationProvider
 from app.db.models.settings import AppSettings
 from app.db.models.spotify import PlaylistEntry, SpotifyPlaylist, Track
 from app.integrations.jellyfin.client import JellyfinClient
@@ -51,6 +60,7 @@ from app.integrations.jellyfin.errors import JellyfinError, JellyfinScanTimeoutE
 from app.integrations.plex.client import PlexClient
 from app.integrations.plex.errors import PlexError
 from app.services.history import record_event
+from app.services.notifications import get_enabled_connections_for_event
 from app.services.settings_service import get_app_settings, get_jellyfin_credentials, get_plex_credentials
 
 logger = structlog.get_logger(__name__)
@@ -74,13 +84,21 @@ class PlaylistSyncOutcome:
 # --- Per-asset: library refresh + discoverability + triggering playlist sync ---
 
 
-async def sync_media_servers_for_asset(session: AsyncSession, http: httpx.AsyncClient, asset: MediaAsset) -> None:
+async def sync_media_servers_for_asset(
+    session: AsyncSession, http: httpx.AsyncClient, asset: MediaAsset, event_type: str
+) -> None:
     """Best-effort: any failure here is caught, logged, and reflected only in
     `MediaAsset.jellyfin_sync_status`/`plex_sync_status` — never propagated,
     and `MediaAsset.state` is never touched (§61).
-    """
-    app_settings = await get_app_settings(session)
 
+    `event_type` is the lifecycle event that just happened (e.g.
+    "acquisition.imported", "replacement.replaced" — see
+    `app.services.notifications.MEDIA_SERVER_REFRESH_EVENTS`). A provider is
+    only notified if it has at least one enabled `NotificationConnection`
+    subscribed to `event_type` — the explicit, user-configurable replacement
+    for this function's old unconditional
+    `AppSettings.jellyfin_enabled`/`plex_enabled` check.
+    """
     refs = await session.execute(
         select(PlaylistMediaReference.playlist_id).where(PlaylistMediaReference.media_asset_id == asset.id)
     )
@@ -90,10 +108,12 @@ async def sync_media_servers_for_asset(session: AsyncSession, http: httpx.AsyncC
     playlists_result = await session.execute(select(SpotifyPlaylist).where(SpotifyPlaylist.id.in_(playlist_ids)))
     playlists = list(playlists_result.scalars().all())
 
-    if app_settings.jellyfin_enabled and any(p.jellyfin_enabled for p in playlists):
+    jellyfin_connections = await get_enabled_connections_for_event(session, NotificationProvider.JELLYFIN, event_type)
+    if jellyfin_connections and any(p.jellyfin_enabled for p in playlists):
         await _sync_jellyfin_for_asset(session, http, asset, [p for p in playlists if p.jellyfin_enabled])
 
-    if app_settings.plex_enabled and any(p.plex_enabled for p in playlists):
+    plex_connections = await get_enabled_connections_for_event(session, NotificationProvider.PLEX, event_type)
+    if plex_connections and any(p.plex_enabled for p in playlists):
         await _sync_plex_for_asset(session, http, asset, [p for p in playlists if p.plex_enabled])
 
 

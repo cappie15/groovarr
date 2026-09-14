@@ -20,6 +20,7 @@ from app.api.history import router as history_router
 from app.api.lyrics import router as lyrics_router
 from app.api.media import router as media_router
 from app.api.media_servers import jellyfin_router, plex_router
+from app.api.notifications import router as notifications_router
 from app.api.playlists import router as playlists_router
 from app.api.queue import router as queue_router
 from app.api.search import router as search_router
@@ -43,6 +44,7 @@ router.include_router(plex_router)
 router.include_router(history_router)
 router.include_router(dashboard_router)
 router.include_router(system_router)
+router.include_router(notifications_router)
 
 
 @router.get("/health")
