@@ -1,0 +1,129 @@
+/* Setup Wizard (pages/SetupWizard.tsx) — a guided, step-by-step alternative
+ * entry point onto the exact same Settings API the flat Settings page uses.
+ * Its step cards reuse `.settings-section` (via Settings.tsx's exported
+ * `SettingsSection`) so a step reads as "part of Settings," not a separate
+ * flashy onboarding flow — this file only adds the stepper/nav chrome
+ * wrapped around that reused card.
+ */
+
+.wizard-page {
+  max-width: 640px;
+}
+
+.wizard-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.wizard-topbar h1 {
+  margin: 0 0 4px;
+}
+
+.wizard-topbar__intro {
+  max-width: 56ch;
+  margin: 0;
+}
+
+.wizard-steps {
+  display: flex;
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.wizard-steps__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wizard-steps__item:last-child {
+  flex: 0 0 auto;
+}
+
+.wizard-steps__item:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  margin: 0 8px;
+}
+
+.wizard-steps__dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.wizard-steps__item--active .wizard-steps__dot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wizard-steps__item--active .wizard-steps__label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.wizard-steps__item--done .wizard-steps__dot {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.wizard-steps__item--done .wizard-steps__label {
+  color: var(--text-muted);
+}
+
+.wizard-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.wizard-done-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wizard-done-list__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.wizard-done-list__label {
+  min-width: 90px;
+  font-weight: 600;
+}
+
+@media (max-width: 480px) {
+  .wizard-steps__label {
+    display: none;
+  }
+}

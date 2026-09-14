@@ -6,6 +6,7 @@ import { ToastProvider } from './components/Toast';
 import './styles/theme.css';
 import './styles/app.css';
 import './styles/actions.css';
+import './styles/wizard.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -32,11 +32,16 @@ import { StatusBadge } from '../components/StatusBadge';
 import { useToast } from '../components/Toast';
 import { useApiQuery } from '../hooks/useApiQuery';
 
-function errorMessage(err: unknown): string {
+// `errorMessage`, `SettingsSection` and `SaveButton` are exported so the
+// Setup Wizard (pages/SetupWizard.tsx) can reuse this page's own card look
+// and error-formatting instead of re-implementing either — the wizard's
+// steps call the exact same api/settings.ts functions as the sections
+// below, just walked through one at a time with guided copy.
+export function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Unexpected error — please try again.';
 }
 
-function SettingsSection({
+export function SettingsSection({
   title,
   hint,
   children,
@@ -54,7 +59,7 @@ function SettingsSection({
   );
 }
 
-function SaveButton({ busy, onClick, label = 'Save' }: { busy: boolean; onClick: () => void; label?: string }) {
+export function SaveButton({ busy, onClick, label = 'Save' }: { busy: boolean; onClick: () => void; label?: string }) {
   return (
     <button type="button" className="btn btn--primary btn--small" disabled={busy} onClick={onClick}>
       {busy ? 'Saving…' : label}
@@ -926,8 +931,12 @@ export default function Settings() {
       <MonitorBetterVersionsSection settings={settings} onSaved={setSettings} />
 
       <SettingsSection title="General">
-        <p className="settings-section__hint" style={{ marginBottom: 0 }}>
+        <p className="settings-section__hint">
           Logs and dependency versions live on the <Link to="/system">System / Status</Link> page.
+        </p>
+        <p className="settings-section__hint" style={{ marginBottom: 0 }}>
+          New to Groovarr, or want to re-check a connection step by step? <Link to="/setup">Run the Setup Wizard</Link>{' '}
+          — it walks through Spotify, Jellyfin and Plex using these same settings, then drops you back here.
         </p>
       </SettingsSection>
     </section>
