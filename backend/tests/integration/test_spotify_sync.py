@@ -11,7 +11,12 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.db.models.media import MediaAsset, MediaState, PlaylistMediaReference
 from app.db.models.spotify import PlaylistEntry, SpotifyPlaylist, Track
-from app.services.settings_service import set_spotify_client_credentials
+from app.integrations.spotify.errors import SpotifyAccessDeniedError
+from app.services.settings_service import (
+    set_spotify_client_credentials,
+    set_spotify_user_oauth_enabled,
+    store_spotify_user_refresh_token,
+)
 from app.services.spotify_sync import connect_playlist, disconnect_playlist, sync_playlist
 from tests.fixtures.spotify_backend import FakeSpotifyBackend, make_track, playlist_id
 
@@ -349,3 +354,61 @@ async def test_resync_adds_reference_when_track_already_has_media_from_another_p
         )
     )
     assert new_ref is not None
+
+
+@pytest.mark.asyncio
+async def test_tracks_endpoint_access_denied_without_pkce_raises_clear_error(db_session):
+    """LIVE-VERIFIED (2026-09-14): Spotify's Client Credentials flow can deny
+    the track-listing endpoint even for a genuinely public playlist (fetching
+    the playlist's own metadata can still succeed). Before this fix, that
+    403 on `get_playlist_tracks` was never caught — only the metadata call
+    had a PKCE fallback. This proves the fallback now covers both calls, and
+    that without PKCE configured, the resulting error is honest (does not
+    claim the playlist is "private/collaborative" when it may not be).
+    """
+    await _configure_credentials(db_session)
+    pid = playlist_id(20)
+
+    backend = FakeSpotifyBackend()
+    backend.set_playlist(pid, name="Public But Tracks-Denied", snapshot_id="snap-1")
+    backend.set_tracks(pid, [make_track("track-x", "Song X")])
+    backend.deny_tracks_for_app_token.add(pid)
+
+    async with backend.build_client() as http:
+        with pytest.raises(SpotifyAccessDeniedError) as exc_info:
+            await connect_playlist(db_session, http, pid)
+
+    message = str(exc_info.value)
+    assert "public playlists" in message
+    assert "Connect your Spotify account" in message
+    # (Rollback-on-error is a real-request behavior, provided by FastAPI's
+    # session dependency — already confirmed live via a real HTTP request
+    # during this verification pass. The bare `db_session` fixture used here
+    # reuses one open, never-rolled-back transaction across the whole test,
+    # so it isn't the right place to re-assert that separately.)
+
+
+@pytest.mark.asyncio
+async def test_tracks_endpoint_access_denied_falls_back_to_pkce_user_token(db_session):
+    """Same scenario as above, but with the optional PKCE mode configured —
+    the fallback must actually retry `get_playlist_tracks` with the user
+    token and succeed, not just fall back for the metadata call.
+    """
+    await _configure_credentials(db_session)
+    await set_spotify_user_oauth_enabled(db_session, True)
+    await store_spotify_user_refresh_token(db_session, "fake-refresh-token")
+
+    pid = playlist_id(21)
+    backend = FakeSpotifyBackend()
+    backend.set_playlist(pid, name="Public But Tracks-Denied", snapshot_id="snap-1")
+    backend.set_tracks(pid, [make_track("track-y", "Song Y")])
+    backend.deny_tracks_for_app_token.add(pid)
+
+    async with backend.build_client() as http:
+        playlist = await connect_playlist(db_session, http, pid)
+
+    assert playlist.name == "Public But Tracks-Denied"
+    entries = (
+        await db_session.execute(select(PlaylistEntry).where(PlaylistEntry.playlist_id == playlist.id))
+    ).scalars().all()
+    assert len(entries) == 1

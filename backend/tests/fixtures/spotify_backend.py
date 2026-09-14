@@ -23,6 +23,13 @@ class FakeSpotifyBackend:
         self.playlists: dict[str, dict] = {}
         self.playlist_tracks: dict[str, list[dict]] = {}
         self.token_requests = 0
+        # Live-verified (2026-09-14, against the real Spotify API): the
+        # track-listing endpoint can deny Client Credentials ("app") tokens
+        # even for a genuinely public playlist, while a real user
+        # (Authorization Code / PKCE) token succeeds. Playlist IDs in this
+        # set 403 the /tracks call unless the request carries the fixture's
+        # "fake-user-token" (i.e. came from `refresh_pkce_token`).
+        self.deny_tracks_for_app_token: set[str] = set()
 
     def set_playlist(self, playlist_id: str, *, name: str, snapshot_id: str, images: list[dict] | None = None) -> None:
         self.playlists[playlist_id] = {
@@ -42,9 +49,9 @@ class FakeSpotifyBackend:
 
         if url.startswith(_TOKEN_URL):
             self.token_requests += 1
-            return httpx.Response(
-                200, json={"access_token": "fake-app-token", "token_type": "Bearer", "expires_in": 3600}
-            )
+            is_user_token = "grant_type=refresh_token" in (request.content or b"").decode("utf-8", "ignore")
+            token = "fake-user-token" if is_user_token else "fake-app-token"
+            return httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 3600})
 
         base = url.split("?")[0]
         if match := _TRACKS_RE.match(base):
@@ -52,6 +59,9 @@ class FakeSpotifyBackend:
             tracks = self.playlist_tracks.get(playlist_id)
             if tracks is None:
                 return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
+            auth = request.headers.get("authorization", "")
+            if playlist_id in self.deny_tracks_for_app_token and auth != "Bearer fake-user-token":
+                return httpx.Response(403, json={"error": {"status": 403, "message": "Forbidden"}})
             items = [{"track": t} for t in tracks]
             return httpx.Response(200, json={"items": items, "next": None})
 

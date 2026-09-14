@@ -51,7 +51,7 @@ Recommended resolutions are given; see §14 for the ones that still warrant your
 | B | §12/60: duplicate Spotify track occurrences must be reproduced in Plex/Jellyfin playlists "if their playlist APIs support this correctly" | **Jellyfin has no server-side dedup** — duplicates are preserved (confirmed unresolved-by-design via issues #1914/#4130). **Plex silently deduplicates repeated items when adding to a playlist** (community-confirmed, no override found). | Exactly as the spec's own caveat anticipates: fully preserve duplicates for Jellyfin; for Plex, generate the playlist with only one entry per duplicate occurrence and show a one-line UI note ("Plex does not support duplicate entries in one playlist — N repeated track(s) collapsed"). This is not a bug to route around, it's a documented platform limit. |
 | C | §47: prefer embedding lyrics in the media file, sidecar only where "ecosystem compatibility requires it" | Research shows the sidecar **is** the only reliably interoperable path: Plex ignores embedded lyric tags entirely (any container); VLC has no LRC-aware engine at all; MP4's `©lyr` atom is confirmed used only for plain unsynced text by every major tagging tool, with no evidence any of the three target apps ever display it for a video file. Jellyfin's Lyrics feature *can* read a sidecar/synthetic-stream LRC convention, but — per source-level confirmation, §3 — that machinery is **hard-scoped to `Audio` items only** and is never invoked for `MusicVideo`, so for Groovarr's actual content type Jellyfin support is not available via either embedding or sidecar today. | Make `.lrc` sidecar the **default/primary** output; also write a plain-text lyric tag as a harmless best-effort bonus. This isn't a contradiction so much as the spec's own fallback clause resolving in the sidecar's favor for this entire ecosystem, not just "where required" — and it's the right call independent of Jellyfin's MusicVideo gap, since VLC/other tools and Groovarr's own UI all consume the sidecar directly. |
 | D | §40: MP4 and MKV are both acceptable output containers, quality must not be sacrificed for container choice | Metadata/artwork reliability is starkly asymmetric: **Plex will not read embedded MKV title/artist tags at all** (long-standing, seemingly deliberate); Jellyfin's MKV support is partial/buggy; MP4's iTunes-style atom set is read consistently by VLC/Jellyfin, and by Plex when the library type is right. Conversely, forcing MP4 for a VP9+Opus source forces a real transcode (quality loss), whereas MKV accepts it via pure stream-copy. | **Decided (project owner's explicit call): output is always MP4**, even when that requires a real transcode — consistent metadata/artwork/lyrics-tag visibility across VLC/Jellyfin/Plex is prioritized over avoiding transcode cost. Groovarr still attempts `-c copy` (stream copy) into MP4 first whenever the source codec pair is already MP4-compatible; it transcodes (e.g. to H.264/AAC, preferring `libopenh264` over `libx264` to keep FFmpeg's LGPL status, §10) only when the source codec isn't natively MP4-compatible. MKV is no longer a default output at all — it remains available only as an explicit manual override in Settings. |
-| E | §8: research and reuse MusicGrabber's Spotify ingestion approach | MusicGrabber (canonical: `gitlab.com/g33kphr33k/musicgrabber`, mirrored on GitHub) **removed real Spotify OAuth entirely** in v1.5.2 ("Spotify has disabled new app creation") and now scrapes the logged-out `open.spotify.com` embed/web pages, with a headless-Chromium fallback for large playlists. Our own research into the current Spotify Web API shows **registering a real OAuth app is still possible today**, and that the **Client Credentials Flow** (app-only auth, no user login at all) is sufficient for reading any public or unlisted playlist by URL/ID — which is the primary use case. | Reuse MusicGrabber's *architectural* ideas (polling/hash-diff sync model, scoring heuristics, LRCLIB fallback chain) but **do not reuse its Spotify access method**. **Decided default: the Client Credentials Flow** (`SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET`, no user login, no browser/loopback redirect, no refresh token to manage, no expiry to track) — sufficient for any public/unlisted playlist, with zero setup friction beyond creating a free Spotify Developer Dashboard app. **Authorization Code + PKCE user OAuth becomes an optional, separately-toggled feature** (a distinct "Connect your Spotify account" action in Settings), needed only to read **private or collaborative** playlists; only that optional path carries the 6-month refresh-token re-authorization consideration (owner needs Premium, narrower Dev-Mode endpoint surface as of Feb 2026), and it's still the right choice over the embed-scraping approach for that case since scraping can't reach private playlists at all. |
+| E | §8: research and reuse MusicGrabber's Spotify ingestion approach | MusicGrabber (canonical: `gitlab.com/g33kphr33k/musicgrabber`, mirrored on GitHub) **removed real Spotify OAuth entirely** in v1.5.2 ("Spotify has disabled new app creation") and now scrapes the logged-out `open.spotify.com` embed/web pages, with a headless-Chromium fallback for large playlists. Our own research into the current Spotify Web API originally concluded the **Client Credentials Flow** (app-only auth, no user login at all) was sufficient for reading any public or unlisted playlist by URL/ID. **UPDATE (2026-09-14, live-verified against a real Spotify app and 3 real public playlists, not just docs): this is no longer true.** Client Credentials can still read a playlist's *metadata* (name, `snapshot_id`, cover images), but the track-listing call now returns `403` for every playlist tested, public ones included — corroborated directly in Spotify's own July 2026 API changelog, which shows the legacy `/playlists/{id}/tracks` endpoint deprecated and its replacement (`/items`) requiring genuine user authentication (`401`). This is a real, current Spotify-side tightening beyond what the Feb 2026 docs said at the time of the original research, not a bug in Groovarr's implementation. | Reuse MusicGrabber's *architectural* ideas (polling/hash-diff sync model, scoring heuristics, LRCLIB fallback chain) but **do not reuse its Spotify access method**. **Revised (supersedes the original "Client Credentials is sufficient" decision): reading a playlist's tracks now requires the Authorization Code + PKCE "Connect your Spotify account" flow for every playlist, not only private/collaborative ones.** Client Credentials remains useful for the cheap metadata/snapshot_id check, but Groovarr must fall back to (in practice, effectively always use) the PKCE-authenticated call to actually fetch tracks — the code already does this fallback (Phase 2's crash on this exact path was found and fixed during live verification). The 6-month refresh-token re-authorization consideration therefore now applies to essentially every user, not just the private-playlist subset originally assumed — see §13/§14 for the resulting onboarding-flow implication. |
 | F | §54: Jellyfin config listed as URL + API key + library + playlist toggle | Jellyfin's playlist-mutation endpoints throw when called with only an API key and no resolvable user context (`Guid.Empty`, confirmed open issue #12999) — every Create/AddItem/Move/Update call needs an explicit real `userId`. | Add a **required "Jellyfin user" field** to Settings (populated via `GET /Users` using the API key), beyond what §54 enumerates. This is an addition, not a contradiction — flagged because the spec's field list would otherwise be insufficient to implement playlists at all. |
 | G | §87: "evaluate current practical options" for YouTube discovery, decoupled from yt-dlp acquisition | `ytsearch:` is implemented inside yt-dlp's own extractor, so using it for discovery re-couples the two systems the spec wants decoupled, and inherits the same 2025–2026 anti-bot escalation as playback. The official YouTube Data API v3 `search.list` needs no cookies/login (only a one-time, operator-provisioned API key) and is structurally independent of yt-dlp. | **Primary discovery = YouTube Data API v3** behind a small `Discovery` interface; `ytsearch:` kept only as an explicitly-labeled fallback if no API key is configured or daily quota (100 units/search, 10k/day default ⇒ ~100 searches/day) is exhausted. See §14 for the trade-off you should confirm. |
 
@@ -284,11 +284,11 @@ migration, not this doc):
 - **SpotifyPlaylist** — `spotify_id` (unique key, not name), `name`, `snapshot_id` (last-seen, for
   cheap diffing), `connected: bool`, `sync_interval_hours`, `last_synced_at`, `next_sync_at`,
   `finalized_at` (nullable — set on disconnect, never cleared), naming/destination overrides,
-  `plex_enabled`, `jellyfin_enabled`. A playlist can be connected in the default, no-login mode
-  purely from its Spotify ID/URL via the Client Credentials Flow (§2-E) as long as it's public or
-  unlisted — no user account/OAuth grant is needed for that case. Only a **private** or
-  collaborative playlist requires the operator to have separately enabled the optional
-  "Connect your Spotify account" (Authorization Code + PKCE) feature first.
+  `plex_enabled`, `jellyfin_enabled`. A playlist's *metadata* (name, artwork, `snapshot_id`) can be
+  fetched via the no-login Client Credentials Flow purely from its Spotify ID/URL, but per the
+  live-verified update to §2-E, actually fetching its *tracks* now requires the operator to have
+  enabled the "Connect your Spotify account" (Authorization Code + PKCE) feature — this is no
+  longer limited to private/collaborative playlists, it applies to public ones too.
 - **Track** — `spotify_track_id`, `canonical_artist`, `featured_artists` (structured, not just
   folded into a display string), `canonical_title`, `parsed_version` (remix/edit info extracted
   from Spotify's free-text `name`), `release_year`, `duration_ms`, `explicit`, `album_artwork_ref`.
@@ -321,9 +321,10 @@ migration, not this doc):
   `adopted: bool` (explicit ownership per §59), `sync_state`, `last_synced_snapshot`.
 - **Settings** — a small typed table (or a single JSON blob with a Pydantic schema) covering
   exactly the fields enumerated in §84, nothing more. Includes a `spotify_user_oauth_enabled`
-  toggle (default **off**) gating the optional Authorization Code + PKCE "Connect your Spotify
-  account" feature (§2-E) — the default Client Credentials Flow needs no such toggle and no
-  stored user-auth state at all.
+  toggle (default **off**) gating the Authorization Code + PKCE "Connect your Spotify account"
+  feature (§2-E) — note this toggle now needs to be enabled for essentially every real playlist
+  import, not just private ones, per the live-verified update; the setting itself and its stored
+  refresh-token shape are unchanged, only the practical expectation of when a user needs to use it.
 
 ---
 
@@ -426,10 +427,13 @@ Following §102 exactly; each phase leaves the repo buildable and tested.
 
 1. **Foundation** — repo scaffold, Docker/Compose, SQLite+Alembic, FastAPI+React shells, config
    loading, structured logging, `/health`, CI skeleton (§91).
-2. **Spotify** — Client Credentials Flow (app-only auth, default and only required mode);
-   optional Authorization Code + PKCE user-OAuth flow (local loopback listener), separately
-   toggled, for private/collaborative playlists; playlist/track fetch, `snapshot_id` diffing,
-   periodic sync job, artwork fetch/cache (24h URL expiry).
+2. **Spotify** — Client Credentials Flow (app-only auth, used for cheap metadata/`snapshot_id`
+   checks); Authorization Code + PKCE user-OAuth flow (implemented as ordinary routes on
+   Groovarr's own running server, not a throwaway local listener — it's already browser-reachable),
+   separately toggled in Settings, now required in practice for fetching any playlist's tracks
+   (live-verified update, §2-E — not limited to private/collaborative playlists as originally
+   assumed); playlist/track fetch, `snapshot_id` diffing, periodic sync job, artwork fetch/cache
+   (24h URL expiry).
 3. **Domain/library** — Track/PlaylistEntry/PlaylistMediaReference models, existing-library
    scanner (§15), naming templates (§16-17).
 4. **Search/matching** — YouTube Data API v3 discovery module (+ ytsearch fallback), hard
@@ -482,12 +486,20 @@ Per §92, with research-informed additions:
 ## 13. Explicit assumptions
 
 - Groovarr's owner will run Spotify's app in Development Mode indefinitely (Extended Quota Mode's
-  250k-MAU business requirement is unreachable for a self-hosted single-user tool). This has no
-  operational consequence for the default Client Credentials Flow — no user login, no refresh
-  token, nothing to re-authorize (§2-E). It matters only for the subset of users who separately
-  opt into the optional "Connect your Spotify account" feature for private/collaborative
-  playlists: those users will need to accept a roughly twice-yearly manual re-authorization when
-  the 6-month refresh-token expiry hits on that optional path.
+  250k-MAU business requirement is unreachable for a self-hosted single-user tool). **Updated per
+  the live-verified §2-E finding: this now has a real operational consequence for essentially
+  every user, not just an opt-in subset** — since fetching a playlist's tracks requires the
+  Authorization Code + PKCE "Connect your Spotify account" flow regardless of the playlist's
+  visibility, the roughly twice-yearly manual re-authorization (6-month refresh-token hard expiry)
+  is now a mainline expectation, not an edge case. The Settings UI should surface this clearly
+  (a "Spotify needs re-authorization" flag/notice) rather than treating it as a rare path.
+- The PKCE flow's redirect URI must be reachable and Spotify-acceptable (`https://` or
+  `http://127.0.0.1`, per Spotify's current redirect-URI policy — a plain LAN IP like
+  `http://10.0.0.31:8080/...` is rejected by the Spotify Dashboard) — for a self-hosted deployment
+  reached over a bare LAN IP, this means the operator needs either an HTTPS reverse proxy in front
+  of Groovarr, or to perform the one-time authorization step via a loopback tunnel (e.g. SSH port
+  forward to `127.0.0.1`) even though day-to-day use of Groovarr itself doesn't require HTTPS.
+  This is a real, now-mainline onboarding step, not an edge case for a small minority of users.
 - The operator is willing to provision a free YouTube Data API v3 key (one Google Cloud Console
   step) for reliable discovery; if not, Groovarr degrades to `ytsearch:`-only discovery with
   reduced reliability. *(Flagged for confirmation — §14.)*

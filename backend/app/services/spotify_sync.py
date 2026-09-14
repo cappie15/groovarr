@@ -119,7 +119,22 @@ async def sync_playlist(
         await session.commit()
         return SyncResult(unchanged=True, tracks_upserted=0, entries_written=0)
 
-    raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
+    try:
+        raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
+    except SpotifyAccessDeniedError:
+        # LIVE-VERIFIED (2026-09-14, against a real, genuinely-public
+        # playlist): Spotify's Client Credentials flow can read a playlist's
+        # own metadata (the `get_playlist` call above, which only requests
+        # id/name/snapshot_id/images/public/collaborative) but denies the
+        # *track-listing* sub-resource outright — 403, even for a public,
+        # non-collaborative playlist. This is NOT limited to private/
+        # collaborative playlists as originally assumed from documentation;
+        # it fires far more often than the fallback above, and PKCE is
+        # effectively required to read ANY playlist's tracks today, not just
+        # private ones. `access_token` may already be a user token here (if
+        # the metadata call above also fell back) — re-fetching is harmless.
+        access_token = await _get_user_access_token(session, http, client)
+        raw_items = await client.get_playlist_tracks(playlist.spotify_id, access_token)
 
     playlist.name = playlist_data.get("name") or playlist.name
     playlist.snapshot_id = new_snapshot_id
@@ -291,8 +306,9 @@ async def _get_user_access_token(session: AsyncSession, http: httpx.AsyncClient,
     settings_row = await get_app_settings(session)
     if not settings_row.spotify_user_oauth_enabled or not settings_row.spotify_refresh_token_encrypted:
         raise SpotifyAccessDeniedError(
-            "This playlist appears to be private/collaborative. Enable and complete "
-            '"Connect your Spotify account" in Settings to read it.'
+            "Spotify denied this app-only request — this can happen even for public playlists, "
+            'not just private/collaborative ones. Enable and complete "Connect your Spotify '
+            'account" in Settings to read it.'
         )
     creds = await get_effective_spotify_credentials(session)
     refresh_token = decrypt_secret(settings_row.spotify_refresh_token_encrypted)

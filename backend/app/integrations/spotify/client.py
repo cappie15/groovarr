@@ -157,8 +157,10 @@ def _raise_for_playlist_response(response: httpx.Response, playlist_id: str) -> 
         raise SpotifyNotFoundError(f"Spotify playlist {playlist_id!r} does not exist")
     if response.status_code in (401, 403):
         raise SpotifyAccessDeniedError(
-            f"Spotify playlist {playlist_id!r} is not readable with the credentials used "
-            "(likely a private/collaborative playlist)"
+            f"Spotify denied app-only (Client Credentials) access to playlist {playlist_id!r}. "
+            "This is not limited to private/collaborative playlists — Spotify's current API can "
+            "deny this even for genuinely public playlists, most often for the track-listing "
+            "endpoint specifically."
         )
     if response.status_code == 429:
         retry_after = response.headers.get("Retry-After")
