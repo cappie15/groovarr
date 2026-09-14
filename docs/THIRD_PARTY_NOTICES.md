@@ -19,6 +19,7 @@ implementation.
 | Alembic | MIT | Database migrations. |
 | React | MIT | Frontend UI framework. |
 | AtomicParsley (optional) | GPL v2 | Only if invoked as a separate, optionally-installed external subprocess for MP4 cover-art edge cases mutagen can't handle cleanly — not statically linked, to scope its GPL obligations to itself. |
+| bgutil-ytdlp-pot-provider (`github.com/Brainicism/bgutil-ytdlp-pot-provider`) | GPL-3.0 | yt-dlp PO-Token Provider Framework plugin (PyPI package, always installed — safe no-op without its server) + a bundled, separately-invoked Node.js HTTP server (copied pre-built from the upstream Docker image, run as its own subprocess bound to `127.0.0.1:4416`) — best-effort mitigation for YouTube's anti-bot restrictions, per ADR 0007. Not statically linked into Groovarr's own code; invoked as an arms-length subprocess/HTTP peer, the same GPL-bundling posture already used for FFmpeg/AtomicParsley above. |
 
 Exact pinned versions, upstream license text, and attribution notices will be filled in as
 dependencies are locked in Phase 1 (per `docs/00-research-and-architecture-review.md` §90).

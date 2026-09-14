@@ -72,6 +72,38 @@ grant_device_group_access() {
     fi
 }
 
+# yt-dlp PO-Token provider helper (see docker/Dockerfile stage 2 and
+# docs/adr/0007-ytdlp-process-isolation.md): a small, best-effort local
+# HTTP server that lets yt-dlp mitigate YouTube's anti-bot restrictions
+# without cookies/login. Bound to 127.0.0.1 only — this server has no
+# authentication of its own, and the upstream project's own README warns
+# that exposing it beyond localhost lets any reachable client mint tokens
+# and potentially worse (see the plugin's own security notice). Started
+# in the background, BEFORE the final `exec` below hands off PID 1 to
+# uvicorn — a background job survives that `exec` (it's a separate child
+# process, not something the shell replacing itself affects) and simply
+# becomes an orphan the container's init reaps normally on shutdown.
+# Deliberately never allowed to fail container startup: yt-dlp's own
+# plugin logs one warning and proceeds exactly as it does today if this
+# is unreachable (confirmed by reading the plugin's source), so a bad
+# Node install, a missing /app/potprovider (e.g. a custom image build
+# that skipped that COPY), or any other startup problem here is caught
+# and merely logged, never `set -e`-fatal. Takes an optional run-as
+# prefix (`$SETPRIV`, or empty to run as the current user) since the two
+# call sites below (root branch dropping privileges vs. an already-
+# unprivileged override) need different invocations.
+start_potprovider_helper() {
+    run_as="$1"
+    [ -x /usr/local/bin/node ] || return 0
+    [ -f /app/potprovider/build/main.js ] || return 0
+    (
+        cd /app/potprovider
+        # shellcheck disable=SC2086
+        exec $run_as /usr/local/bin/node build/main.js --host 127.0.0.1 --port 4416
+    ) >/tmp/potprovider.log 2>&1 &
+    echo "groovarr: started yt-dlp PO-Token provider helper on 127.0.0.1:4416 (pid $!, best-effort — see /tmp/potprovider.log)" >&2
+}
+
 if [ "$(id -u)" = "0" ]; then
     fix_ownership_if_needed /config
     fix_ownership_if_needed /music-videos
@@ -88,6 +120,8 @@ if [ "$(id -u)" = "0" ]; then
     cd "$BACKEND_DIR"
     echo "groovarr: running database migrations (alembic upgrade head)..." >&2
     $SETPRIV alembic upgrade head
+
+    start_potprovider_helper "$SETPRIV"
 
     echo "groovarr: starting uvicorn on 0.0.0.0:${PORT} as uid ${APP_UID}..." >&2
     # --proxy-headers makes uvicorn trust X-Forwarded-Proto/X-Forwarded-Host
@@ -110,6 +144,8 @@ else
     cd "$BACKEND_DIR"
     echo "groovarr: running database migrations (alembic upgrade head)..." >&2
     alembic upgrade head
+
+    start_potprovider_helper ""
 
     echo "groovarr: starting uvicorn on 0.0.0.0:${PORT}..." >&2
     exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" \

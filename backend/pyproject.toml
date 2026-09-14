@@ -15,6 +15,15 @@ dependencies = [
   "cryptography>=43.0,<44.0",
   "mutagen>=1.47,<2.0",
   "yt-dlp>=2024.8.0",
+  # yt-dlp PO-Token Provider Framework plugin (auto-discovered by yt-dlp
+  # once importable — no code on our side needs to reference it). Purely
+  # additive and safe to always install: with no helper server reachable
+  # (the common case outside the Docker image, e.g. local dev), the
+  # plugin logs one warning and yt-dlp proceeds exactly as it does today,
+  # per the plugin's own graceful-degradation design (confirmed by
+  # reading its source, not assumed) — see docs/adr/0007-ytdlp-process-
+  # isolation.md for the full rationale.
+  "bgutil-ytdlp-pot-provider>=2.0.0,<3.0",
 ]
 
 [project.optional-dependencies]

@@ -30,7 +30,23 @@ RUN npm run build
 # -> /src/frontend/dist (per frontend/vite.config.ts `build.outDir`)
 
 # ---------------------------------------------------------------------------
-# Stage 2: backend dependency build
+# Stage 2: yt-dlp PO-Token provider helper (source only — never run as its
+# own container; see docs/adr/0007-ytdlp-process-isolation.md).
+#
+# YouTube's anti-bot restrictions can 403 an otherwise-valid download (live-
+# verified on this project) — yt-dlp's own documented, non-evasive mitigation
+# is its PO Token Provider Framework, and `bgutil-ytdlp-pot-provider`
+# (GPL-3.0, github.com/Brainicism/bgutil-ytdlp-pot-provider) is the
+# community-maintained implementation it recommends. It ships as a prebuilt
+# Docker image containing a small Node.js HTTP server (there is no npm
+# package or single binary to install directly) — pulling the already-built
+# `build/` output and its `node_modules` from that image, plus the exact
+# Node runtime it was built for, avoids reimplementing its own multi-stage
+# TypeScript build here. Pinned to an exact released version, not `:latest`.
+FROM brainicism/bgutil-ytdlp-pot-provider:2.0.0-node AS potprovider
+
+# ---------------------------------------------------------------------------
+# Stage 3: backend dependency build
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS backend-build
 
@@ -51,7 +67,7 @@ COPY backend/app ./app
 RUN pip install --no-cache-dir --prefix=/install .
 
 # ---------------------------------------------------------------------------
-# Stage 3: final runtime image
+# Stage 4: final runtime image
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS final
 
@@ -84,8 +100,37 @@ ENV PORT=${PORT} \
 # live: gosu silently drops supplementary groups even when the target
 # user's /etc/group membership is genuinely present, which would silently
 # break device-group-based hardware-acceleration access).
+# LIVE-VERIFIED GAP: ffmpeg is compiled with VAAPI/QSV encoder support, and
+# `libva2`/`libvpl2` (the generic runtime shims) come along as its own
+# dependencies — but neither actually WORKS without a vendor driver
+# backend, which is a separate package Debian doesn't pull in
+# automatically. Confirmed on this project's own real Intel iGPU: without
+# these, ffmpeg fails with "unknown libva error" (VAAPI) and "Error
+# creating a MFX session" (QSV) even though hwaccel.py's detection
+# correctly reports the device as present — detection can only see the
+# device file + compiled encoder + PCI vendor ID, not whether a driver is
+# actually installed to back it.
+#   - intel-media-va-driver: the open-source "iHD" VAAPI backend for
+#     Intel Gen8+ (Broadwell, 2014) and newer iGPUs/dGPUs.
+#   - libmfx-gen1.2: the oneVPL GPU runtime QSV needs (the Intel Media SDK
+#     predecessor is end-of-life; oneVPL is the current, correct package).
+#   - vainfo: a ~10 KB diagnostic CLI (`docker exec groovarr vainfo`) an
+#     operator can use to confirm what their own host's driver actually
+#     supports — cheap to include, useful when hardware acceleration
+#     doesn't behave as expected on a different GPU/driver combination.
+# AMD/older-Intel VAAPI and NVIDIA NVENC need their own vendor driver
+# packages this image does not attempt to bundle (`mesa-va-drivers` for
+# AMD, the host's own NVIDIA driver + Container Toolkit for NVENC per
+# docker-compose.yml's existing commented-out device mapping) — adding
+# every vendor's drivers unconditionally would bloat the image for
+# operators who use none of them; Intel's is included because it's the
+# one this project could concretely verify end-to-end.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        intel-media-va-driver \
+        libmfx-gen1.2 \
+        vainfo \
     && rm -rf /var/lib/apt/lists/*
 
 # Fixed numeric uid/gid so bind-mounted host volumes can be chowned
@@ -118,10 +163,22 @@ COPY backend/app ./backend/app
 # identically in this container layout and in the dev repo layout.
 COPY --from=frontend-build /src/frontend/dist ./frontend/dist
 
+# yt-dlp PO-Token provider helper: the exact Node runtime it was built
+# against (copied rather than apt-installing a possibly-mismatched Debian
+# `nodejs` package) plus its built server and production node_modules.
+# Best-effort only (see docker/entrypoint.sh) — the Python plugin installed
+# via pyproject.toml auto-discovers this server at its default
+# 127.0.0.1:4416 with zero Groovarr-side configuration; if it isn't
+# running for any reason, yt-dlp logs one warning and proceeds exactly as
+# it does today (confirmed by reading the plugin's own source).
+COPY --from=potprovider /usr/local/bin/node /usr/local/bin/node
+COPY --from=potprovider /app/build /app/potprovider/build
+COPY --from=potprovider /app/node_modules /app/potprovider/node_modules
+
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh \
     && mkdir -p /config /music-videos /downloads \
-    && chown -R groovarr:groovarr /app /config /music-videos /downloads
+    && chown -R groovarr:groovarr /app /config /music-videos /downloads /app/potprovider
 
 EXPOSE ${PORT}
 

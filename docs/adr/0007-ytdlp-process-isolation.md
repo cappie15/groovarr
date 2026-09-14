@@ -29,3 +29,24 @@ blocking the event loop.
 - FFmpeg (a genuine subprocess, since there's no Python-native equivalent) is invoked with argv
   arrays only — see [ADR 0008](0008-ffmpeg-strategy.md) — the one place in acquisition where the
   injection risk this ADR avoids for yt-dlp still had to be defended against directly.
+
+## Update: yt-dlp PO-Token Provider (live-testing addition)
+
+Live testing hit a real `HTTP Error 403: Forbidden` from YouTube — consistent anti-bot behavior,
+not a Groovarr bug. yt-dlp's own documented, non-evasive mitigation is its PO Token Provider
+Framework; `bgutil-ytdlp-pot-provider` (GPL-3.0,
+[github.com/Brainicism/bgutil-ytdlp-pot-provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider))
+is the community-maintained implementation it points to. This reintroduces a real subprocess (a
+small Node.js HTTP server, `docker/entrypoint.sh`), but it does not reopen the injection risk
+this ADR avoids: its argv is fixed constants (`node build/main.js --host 127.0.0.1 --port 4416`)
+— no Spotify/YouTube-derived text ever reaches it. The Python side needs zero code changes: the
+`bgutil-ytdlp-pot-provider` PyPI package is a yt-dlp plugin, auto-discovered once importable, and
+its default target (`http://127.0.0.1:4416`) is exactly where the bundled server listens — this
+is confirmed directly from the plugin's own source
+(`getpot_bgutil_http.py`'s `DEFAULT_BASE_URL`), not assumed. If the server isn't running or
+isn't reachable for any reason, the plugin catches the transport error, logs one warning, and
+raises `PoTokenProviderRejectedRequest` — yt-dlp's provider framework treats that exactly like
+"no provider available," which is already yt-dlp's default (pre-existing, unaffected) behavior:
+it drops PO-token-gated formats and proceeds with whatever remains extractable, never a hard
+failure. Bound to `127.0.0.1` only, per the upstream project's own security notice — the server
+has no authentication of its own.
