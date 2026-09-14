@@ -143,7 +143,22 @@ class AppSettings(Base):
     # default for existing/new installs. See `ContainerPolicy` above for
     # what each value means and the metadata-reliability tradeoff involved.
     container_policy: Mapped[ContainerPolicy] = mapped_column(
-        SAEnum(ContainerPolicy, native_enum=False, length=32),
+        # LIVE-VERIFIED BUG (2026-09-14): SQLAlchemy's Enum type stores/reads
+        # a Python enum member by its NAME ("ALWAYS_MP4") by default, not its
+        # .value ("always_mp4") — but this migration's server_default (and
+        # every other place in the app, including the JSON API contract)
+        # uses the lowercase .value form. Without values_callable, an
+        # already-deployed row backfilled by the migration's server_default
+        # stores "always_mp4" in the DB, and reading it back raises
+        # `KeyError: 'always_mp4'` (SQLAlchemy looks it up as a member name,
+        # finds none). values_callable makes both directions consistently
+        # use .value, matching the migration and the API.
+        SAEnum(
+            ContainerPolicy,
+            native_enum=False,
+            length=32,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         default=ContainerPolicy.ALWAYS_MP4,
         nullable=False,
     )
