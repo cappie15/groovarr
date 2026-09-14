@@ -3,11 +3,12 @@
 behavior, not just the orchestration around it.
 """
 
+import os
 import shutil
 
 import pytest
 
-from app.db.models.settings import ContainerPolicy
+from app.db.models.settings import ContainerPolicy, HardwareAccelPolicy
 from app.integrations.acquisition.errors import ValidationError
 from app.integrations.acquisition.ffmpeg_mux import mux_media, mux_to_mp4
 from app.integrations.acquisition.probe import probe_media, resolution_label
@@ -158,6 +159,56 @@ async def test_mux_media_prefer_mkv_policy_still_prefers_mp4_when_compatible(tmp
     assert result.container == "mp4"
     assert result.transcoded_video is False
     assert result.transcoded_audio is False
+
+
+@pytest.mark.asyncio
+async def test_forced_hardware_encoder_falls_back_to_software_when_device_inaccessible(tmp_path):
+    """The default test-runner process has no `render` group membership
+    (confirmed on this host: a real Intel iGPU + /dev/dri/renderD128 exist,
+    but this process can't open it — the same situation a Docker container
+    without `--device /dev/dri` passthrough would see). Forcing VAAPI here
+    must therefore hit a real ffmpeg device-open failure and fall back to
+    the existing software path, producing a valid file — never a hard
+    failure just because the forced hardware encoder didn't pan out.
+    """
+    video = tmp_path / "video.webm"
+    audio = tmp_path / "audio.opus"
+    make_vp9_video(video)
+    make_opus_audio(audio)
+
+    dest = tmp_path / "out.mp4"
+    result = await mux_to_mp4(video, audio, dest, hardware_policy=HardwareAccelPolicy.VAAPI)
+
+    assert result.transcoded_video is True
+    assert dest.is_file() and dest.stat().st_size > 0
+    probe = await probe_media(dest)
+    assert probe.video_codec == "h264"
+
+
+@pytest.mark.skipif(
+    not (os.path.exists("/dev/dri/renderD128") and os.access("/dev/dri/renderD128", os.R_OK | os.W_OK)),
+    reason="No VAAPI render device accessible to this process (expected in most CI/sandbox runs)",
+)
+@pytest.mark.asyncio
+async def test_real_vaapi_hardware_encode_when_device_is_genuinely_accessible(tmp_path):
+    """Only runs where /dev/dri/renderD128 is genuinely usable by the test
+    process (this exact host has a real Intel UHD 630 iGPU and was
+    confirmed, via `sg render -c ffmpeg ...`, to actually VAAPI-encode
+    successfully — see the hwaccel fork's report). Proves the real
+    hardware path end-to-end, not just its absence/fallback.
+    """
+    video = tmp_path / "video.webm"
+    audio = tmp_path / "audio.opus"
+    make_vp9_video(video)
+    make_opus_audio(audio)
+
+    dest = tmp_path / "out.mp4"
+    result = await mux_to_mp4(video, audio, dest, hardware_policy=HardwareAccelPolicy.VAAPI)
+
+    assert result.transcoded_video is True
+    probe = await probe_media(dest)
+    assert probe.video_codec == "h264"
+    assert probe.duration_s is not None and probe.duration_s > 0
 
 
 def test_resolution_label_thresholds():

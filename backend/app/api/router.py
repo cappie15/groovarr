@@ -25,6 +25,7 @@ from app.api.queue import router as queue_router
 from app.api.search import router as search_router
 from app.api.settings import router as settings_router
 from app.api.spotify_oauth import router as spotify_oauth_router
+from app.api.system import router as system_router
 from app.db.session import check_db_connection
 
 logger = structlog.get_logger(__name__)
@@ -41,6 +42,7 @@ router.include_router(jellyfin_router)
 router.include_router(plex_router)
 router.include_router(history_router)
 router.include_router(dashboard_router)
+router.include_router(system_router)
 
 
 @router.get("/health")

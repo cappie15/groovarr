@@ -318,7 +318,13 @@ async def run_pipeline_core(
     asset.state = MediaState.PROCESSING
     await session.commit()
 
-    mux_result = await mux_media(streams.video_path, streams.audio_path, work_dir, app_settings.container_policy)
+    mux_result = await mux_media(
+        streams.video_path,
+        streams.audio_path,
+        work_dir,
+        app_settings.container_policy,
+        app_settings.hardware_acceleration,
+    )
 
     expected_duration_s = (track.duration_ms / 1000) if track else None
     probe = await probe_media(mux_result.output_path)

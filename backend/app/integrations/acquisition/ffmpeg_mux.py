@@ -26,11 +26,33 @@ from pathlib import Path
 
 import structlog
 
-from app.db.models.settings import ContainerPolicy
+from app.db.models.settings import ContainerPolicy, HardwareAccelPolicy
 from app.integrations.acquisition.errors import MuxError
+from app.integrations.acquisition.hwaccel import get_hardware_acceleration_status
 from app.integrations.acquisition.probe import probe_media
 
 logger = structlog.get_logger(__name__)
+
+#: Per-encoder ffmpeg invocation pieces for the video leg of a transcode.
+#: Each entry is (pre-input global args, video-encode args) — VAAPI needs a
+#: device declared before `-i` and a format/hwupload filter on the video
+#: stream (its encoder only accepts VAAPI-surface frames, not the plain
+#: software frames a software-decoded VP9/AV1 source produces); NVENC and
+#: QSV accept software frames directly for encode-only (no hwaccel decode)
+#: use, which is what Groovarr needs here — the source is already fully
+#: decoded software frames by the time ffmpeg reads it, only the ENCODE
+#: side needs to be hardware, so there's no benefit to a hwaccel decode
+#: path and real extra failure surface (pixel-format/device mismatches) in
+#: adding one. See ffmpeg.org/ffmpeg-codecs.html §VAAPI and the ffmpeg wiki
+#: Hardware/QuickSync and Hardware/VAAPI pages for these exact flag shapes.
+_HW_VIDEO_ARGS: dict[str, tuple[list[str], list[str]]] = {
+    "nvenc": ([], ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "19"]),
+    "qsv": ([], ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "19"]),
+    "vaapi": (
+        ["-vaapi_device", "/dev/dri/renderD128"],
+        ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", "-qp", "19"],
+    ),
+}
 
 # Codecs the MP4 (ISO-BMFF) muxer carries with broad real-world player
 # support (§3 research) — anything else gets transcoded rather than muxed
@@ -80,10 +102,59 @@ async def _h264_encoder() -> str:
     return "libx264"
 
 
-async def mux_to_mp4(video_path: Path, audio_path: Path, dest_path: Path) -> MuxResult:
+async def _resolve_hw_video_encoder(policy: HardwareAccelPolicy) -> str | None:
+    """Which hardware encoder key (into `_HW_VIDEO_ARGS`) to attempt for
+    this transcode, or `None` for software-only. `AUTO` defers to
+    `hwaccel.py`'s detected best choice — behaviorally identical to
+    `DISABLED` when nothing is genuinely usable, which is what makes AUTO
+    safe as the default (see `HardwareAccelPolicy` docstring). A forced
+    specific choice (`NVENC`/`QSV`/`VAAPI`) is attempted even if detection
+    didn't confirm it, since an operator may know their setup works better
+    than a generic heuristic — the runtime fallback below still protects
+    against it being wrong.
+    """
+    if policy == HardwareAccelPolicy.DISABLED:
+        return None
+    if policy == HardwareAccelPolicy.AUTO:
+        status = await get_hardware_acceleration_status()
+        return status.best()
+    return policy.value  # NVENC/QSV/VAAPI forced explicitly
+
+
+async def _run_ffmpeg(args: list[str], dest_path: Path) -> tuple[bool, str]:
+    """Run one ffmpeg invocation. Returns (succeeded, stderr_tail) — never
+    raises, so callers can decide whether to retry with a different encoder
+    rather than immediately failing the whole download on a hardware
+    encoder that turns out not to actually work at runtime.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        return False, stderr.decode(errors="replace")[-2000:]
+    return True, ""
+
+
+async def mux_to_mp4(
+    video_path: Path,
+    audio_path: Path,
+    dest_path: Path,
+    hardware_policy: HardwareAccelPolicy = HardwareAccelPolicy.DISABLED,
+) -> MuxResult:
     """Mux `video_path`'s video stream and `audio_path`'s audio stream into
     a single MP4 at `dest_path`. Raises `MuxError` (retryable) if ffmpeg
     fails.
+
+    When a video transcode is actually needed (source not MP4-compatible),
+    `hardware_policy` controls whether a hardware encoder is tried first —
+    see `_resolve_hw_video_encoder`. A hardware attempt that fails at
+    runtime for ANY reason falls back to the existing software path
+    (`libopenh264`/`libx264`) rather than failing the whole mux: hardware
+    acceleration must never turn a working software fallback into a hard
+    failure.
     """
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -93,43 +164,59 @@ async def mux_to_mp4(video_path: Path, audio_path: Path, dest_path: Path) -> Mux
     video_ok = (video_probe.video_codec or "").lower() in MP4_COMPATIBLE_VIDEO_CODECS
     audio_ok = (audio_probe.audio_codec or "").lower() in MP4_COMPATIBLE_AUDIO_CODECS
 
-    args = [
+    base_args = [
         "ffmpeg",
         "-y",
         "-hide_banner",
         "-loglevel",
         "error",
-        "-i",
-        str(video_path),
-        "-i",
-        str(audio_path),
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
     ]
+    audio_args = ["-c:a", "copy"] if audio_ok else ["-c:a", "aac", "-b:a", "256k"]
+
+    def build(pre_input: list[str], video_args: list[str]) -> list[str]:
+        return (
+            base_args
+            + pre_input
+            + ["-i", str(video_path), "-i", str(audio_path), "-map", "0:v:0", "-map", "1:a:0"]
+            + video_args
+            + audio_args
+            + ["-movflags", "+faststart", str(dest_path)]
+        )
+
+    hw_key: str | None = None
+    if not video_ok:
+        hw_key = await _resolve_hw_video_encoder(hardware_policy)
+
+    if hw_key is not None:
+        pre_input, video_args = _HW_VIDEO_ARGS[hw_key]
+        ok, stderr_tail = await _run_ffmpeg(build(pre_input, video_args), dest_path)
+        if ok:
+            logger.info(
+                "acquisition.mux_completed",
+                dest=str(dest_path),
+                container="mp4",
+                transcoded_video=True,
+                transcoded_audio=not audio_ok,
+                hardware_encoder=hw_key,
+            )
+            return MuxResult(
+                output_path=dest_path, container="mp4", transcoded_video=True, transcoded_audio=not audio_ok
+            )
+        logger.warning(
+            "acquisition.hw_encode_failed_falling_back_to_software",
+            hardware_encoder=hw_key,
+            stderr_tail=stderr_tail,
+        )
 
     if video_ok:
-        args += ["-c:v", "copy"]
+        video_args = ["-c:v", "copy"]
     else:
         encoder = await _h264_encoder()
-        args += ["-c:v", encoder, "-preset", "medium", "-crf", "18"]
+        video_args = ["-c:v", encoder, "-preset", "medium", "-crf", "18"]
 
-    if audio_ok:
-        args += ["-c:a", "copy"]
-    else:
-        args += ["-c:a", "aac", "-b:a", "256k"]
-
-    args += ["-movflags", "+faststart", str(dest_path)]
-
-    proc = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        if dest_path.exists():
-            dest_path.unlink(missing_ok=True)
-        raise MuxError(f"ffmpeg exited {proc.returncode}: {stderr.decode(errors='replace')[-2000:]}")
+    ok, stderr_tail = await _run_ffmpeg(build([], video_args), dest_path)
+    if not ok:
+        raise MuxError(f"ffmpeg failed: {stderr_tail}")
 
     logger.info(
         "acquisition.mux_completed",
@@ -184,17 +271,25 @@ async def mux_to_mkv(video_path: Path, audio_path: Path, dest_path: Path) -> Mux
     return MuxResult(output_path=dest_path, container="mkv", transcoded_video=False, transcoded_audio=False)
 
 
-async def mux_media(video_path: Path, audio_path: Path, work_dir: Path, policy: ContainerPolicy) -> MuxResult:
+async def mux_media(
+    video_path: Path,
+    audio_path: Path,
+    work_dir: Path,
+    policy: ContainerPolicy,
+    hardware_policy: HardwareAccelPolicy = HardwareAccelPolicy.DISABLED,
+) -> MuxResult:
     """Dispatch to the right muxing strategy for `policy`
     (`AppSettings.container_policy`, §2 row D — now Settings-overridable,
     default unchanged). Always tries a stream-copy into MP4 first regardless
     of policy; `policy` only controls what happens when the source codec
     pair ISN'T natively MP4-compatible: `ALWAYS_MP4` transcodes (today's
     original behavior, unchanged), `PREFER_MP4_ALLOW_MKV` falls back to a
-    no-transcode MKV stream-copy instead.
+    no-transcode MKV stream-copy instead — `hardware_policy` is therefore
+    only ever relevant under `ALWAYS_MP4`, since the MKV path never
+    transcodes at all.
     """
     if policy == ContainerPolicy.ALWAYS_MP4:
-        return await mux_to_mp4(video_path, audio_path, work_dir / "muxed.mp4")
+        return await mux_to_mp4(video_path, audio_path, work_dir / "muxed.mp4", hardware_policy)
 
     video_probe = await probe_media(video_path)
     audio_probe = await probe_media(audio_path)

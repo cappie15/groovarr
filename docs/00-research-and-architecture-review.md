@@ -98,6 +98,18 @@ decision. Headline facts not already covered in §2:
   source-availability obligations for the Docker image — since the always-MP4 default means the
   transcode path will be exercised routinely rather than as a rare fallback, use `libopenh264` by
   default for the H.264 transcode path to stay LGPL, and document the trade-off either way.
+  **Hardware-accelerated transcoding** (per a later owner request, since the software path is
+  confirmed slow — minutes per track without a hardware encoder): `AppSettings.hardware_acceleration`
+  (`auto`/`disabled`/`nvenc`/`qsv`/`vaapi`, default `auto`) lets the acquisition pipeline try
+  NVENC, Intel Quick Sync, or VAAPI first for a needed transcode, falling back to the existing
+  software path on any runtime failure. Detection is genuine, not guessed: NVENC requires both
+  the `h264_nvenc` encoder and a reachable GPU (`nvidia-smi` succeeding); QSV and VAAPI both
+  require a readable/writable DRM render node (`/dev/dri/renderD1*`), with QSV additionally
+  requiring that node's PCI vendor ID to be Intel's (`0x8086`) — live-verified on a real Intel
+  UHD 630 iGPU: a genuine VAAPI encode completed in well under a second, versus several minutes
+  of software encoding for the same clip. Requires the operator to pass the device through to
+  the container (`docker/docker-compose.yml` documents this, commented out by default) — auto
+  correctly reports "none" and behaves identically to `disabled` when that hasn't been done.
 - **Lyrics**: LRCLIB (MIT, no auth, no documented read rate limit) is the right single provider
   for v1. Beets' `Backend.fetch(artist, title, album, length)` interface plus its
   duration-tolerance validation (reject if `|candidate.duration − track.duration| > 5%` **and**

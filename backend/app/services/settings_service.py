@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.secrets import decrypt_secret, encrypt_secret
-from app.db.models.settings import SETTINGS_SINGLETON_ID, AppSettings, ContainerPolicy
+from app.db.models.settings import SETTINGS_SINGLETON_ID, AppSettings, ContainerPolicy, HardwareAccelPolicy
 
 
 async def get_app_settings(session: AsyncSession) -> AppSettings:
@@ -156,6 +156,18 @@ async def set_container_policy(session: AsyncSession, policy: ContainerPolicy) -
     this only makes the owner's original decision overridable."""
     row = await get_app_settings(session)
     row.container_policy = policy
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+async def set_hardware_acceleration(session: AsyncSession, policy: HardwareAccelPolicy) -> AppSettings:
+    """Which encoder the acquisition pipeline tries for a transcode that's
+    actually needed. Default (`HardwareAccelPolicy.AUTO`) is unchanged
+    behavior on a host with nothing detected — see
+    `app/integrations/acquisition/hwaccel.py`."""
+    row = await get_app_settings(session)
+    row.hardware_acceleration = policy
     await session.commit()
     await session.refresh(row)
     return row

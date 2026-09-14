@@ -47,6 +47,31 @@ class ContainerPolicy(enum.StrEnum):
     PREFER_MP4_ALLOW_MKV = "prefer_mp4_allow_mkv"
 
 
+class HardwareAccelPolicy(enum.StrEnum):
+    """Which encoder `ffmpeg_mux.py` tries for a transcode that's actually
+    needed (only relevant under `ContainerPolicy.ALWAYS_MP4` — the MKV
+    fallback path never transcodes at all). See
+    `app/integrations/acquisition/hwaccel.py` for how availability is
+    detected.
+    """
+
+    #: Use the best hardware encoder `hwaccel.py` detects as genuinely
+    #: usable right now (NVENC, then QSV, then VAAPI); fall back to the
+    #: existing software path (`libopenh264`/`libx264`) if none is
+    #: available, or if the hardware attempt fails at runtime. Behaviorally
+    #: identical to DISABLED on a host with nothing detected, which is why
+    #: this is safe as the default (§ below).
+    AUTO = "auto"
+    #: Always software — today's original, unchanged behavior.
+    DISABLED = "disabled"
+    #: Force a specific accelerator even if auto-detection is inconclusive
+    #: (e.g. it's actually usable but a detection heuristic doesn't catch
+    #: it). Still falls back to software if the forced encoder fails.
+    NVENC = "nvenc"
+    QSV = "qsv"
+    VAAPI = "vaapi"
+
+
 class AppSettings(Base):
     __tablename__ = "app_settings"
 
@@ -160,6 +185,24 @@ class AppSettings(Base):
             values_callable=lambda enum_cls: [e.value for e in enum_cls],
         ),
         default=ContainerPolicy.ALWAYS_MP4,
+        nullable=False,
+    )
+
+    # Hardware-accelerated transcode policy (see `HardwareAccelPolicy` above
+    # and `app/integrations/acquisition/hwaccel.py`). Default AUTO is safe
+    # for existing/new installs with no hardware encoder reachable: AUTO
+    # falls back to the exact same software path as DISABLED whenever
+    # nothing is genuinely detected, so it changes nothing for the common
+    # case and only takes effect where hardware acceleration would actually
+    # help.
+    hardware_acceleration: Mapped[HardwareAccelPolicy] = mapped_column(
+        SAEnum(
+            HardwareAccelPolicy,
+            native_enum=False,
+            length=16,
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        default=HardwareAccelPolicy.AUTO,
         nullable=False,
     )
 

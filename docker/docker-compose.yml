@@ -33,6 +33,31 @@ services:
     environment:
       # Mirrors the port mapping above; overridden by .env if set there too.
       PORT: ${PORT:-8080}
+    # --- Optional: hardware-accelerated transcoding -------------------------
+    # Groovarr auto-detects usable hardware video encoders at startup (see
+    # Settings → Media Management → Hardware Acceleration and GET
+    # /api/system/hardware-acceleration) and safely falls back to software
+    # if none are reachable — nothing below is required for Groovarr to
+    # work. Uncomment ONE of the two blocks that matches your host's GPU to
+    # let the container actually reach it; live-verified against a real
+    # Intel iGPU on 2026-09-14 (a genuine VAAPI encode completed in well
+    # under a second, versus several minutes of CPU-bound software encoding
+    # for the same clip).
+    #
+    # Intel Quick Sync (QSV) or generic VAAPI (Intel or AMD iGPU/dGPU) —
+    # passes through the host's DRM render node:
+    # devices:
+    #   - /dev/dri:/dev/dri
+    #
+    # NVIDIA (NVENC) — requires the NVIDIA Container Toolkit installed on
+    # the host (see docs.nvidia.com/datacenter/cloud-native/container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT','8080') + '/health', timeout=3)"]
       interval: 30s

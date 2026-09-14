@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.settings import MONITOR_BETTER_VERSIONS_WARNING, AppSettings, ContainerPolicy
+from app.db.models.settings import MONITOR_BETTER_VERSIONS_WARNING, AppSettings, ContainerPolicy, HardwareAccelPolicy
 from app.db.session import get_session
 from app.services.settings_service import (
     get_app_settings,
@@ -14,6 +14,7 @@ from app.services.settings_service import (
     set_container_policy,
     set_default_sync_interval_hours,
     set_download_limits,
+    set_hardware_acceleration,
     set_jellyfin_config,
     set_lyrics_enabled,
     set_monitor_better_versions_enabled,
@@ -73,6 +74,7 @@ class SettingsOut(BaseModel):
     # owner's original decision) — this setting only makes it overridable,
     # it does not change the default for existing/new installs.
     container_policy: ContainerPolicy
+    hardware_acceleration: HardwareAccelPolicy
 
 
 def _to_out(row: AppSettings) -> SettingsOut:
@@ -100,6 +102,7 @@ def _to_out(row: AppSettings) -> SettingsOut:
         max_download_attempts=row.max_download_attempts,
         lyrics_enabled=row.lyrics_enabled,
         container_policy=row.container_policy,
+        hardware_acceleration=row.hardware_acceleration,
     )
 
 
@@ -255,4 +258,16 @@ async def update_media_settings(
     body: MediaSettingsRequest, session: AsyncSession = Depends(get_session)
 ) -> SettingsOut:
     row = await set_container_policy(session, body.container_policy)
+    return _to_out(row)
+
+
+class HardwareAccelRequest(BaseModel):
+    hardware_acceleration: HardwareAccelPolicy
+
+
+@router.put("/hardware-acceleration", response_model=SettingsOut)
+async def update_hardware_acceleration(
+    body: HardwareAccelRequest, session: AsyncSession = Depends(get_session)
+) -> SettingsOut:
+    row = await set_hardware_acceleration(session, body.hardware_acceleration)
     return _to_out(row)
