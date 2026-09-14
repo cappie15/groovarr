@@ -50,6 +50,36 @@ class CandidateNotFoundError(ValueError):
     """
 
 
+class CandidateSelectionConflictError(ValueError):
+    """Raised when Manual Selection (`select_candidate`) is invoked against a
+    `MediaAsset` it cannot safely mutate: either a real file already exists
+    for it (`/replace` is the safe path for that, per `app.services.
+    replacement`) or an acquisition attempt is already in flight for it
+    (QUEUED/DOWNLOADING/PROCESSING/IMPORTING).
+
+    A live-testing session (2026-09-14) hit the in-flight case for real:
+    Automatic Search picked a winner, the background download queue claimed
+    it (DOWNLOADING) within its normal poll tick, and a Manual Selection
+    call landed microseconds later — `select_candidate` used to reset the
+    row straight back to CANDIDATE_SELECTED with a *different*
+    `video_candidate_id`/`source_reference` unconditionally, with no check
+    of the row's current state at all. The in-flight download (for the
+    *original* winner) kept running against that same row and, once it
+    finished, called `_import_asset` and overwrote `local_path`/state with
+    *its* result — silently discarding the second (Manual Selection's)
+    result, which had already finished importing moments earlier. Both were
+    real, fully downloaded, muxed, tagged files; whichever import step lost
+    the race left its own file on disk referenced by nothing in the
+    database at all — not even eligible for the normal reference-counted
+    delete path (`app.services.deletion`), since nothing ever points a
+    `MediaAsset` row back at it. Refusing the second call outright — the
+    same defensive pattern already used by `app.services.acquisition.
+    enqueue_for_download`/`retry_download`/`cancel_queued` for every other
+    state-machine transition in this module — closes the race instead of
+    leaving its outcome to whichever download happens to finish last.
+    """
+
+
 @dataclass
 class SearchOutcome:
     media_asset: MediaAsset
@@ -315,16 +345,42 @@ async def get_candidates_for_track(session: AsyncSession, track_id: int) -> list
     return list(result.scalars().all())
 
 
+_SELECT_UNSAFE_STATES = (
+    MediaState.QUEUED,
+    MediaState.DOWNLOADING,
+    MediaState.PROCESSING,
+    MediaState.IMPORTING,
+)
+
+
 async def select_candidate(session: AsyncSession, track_id: int, video_candidate_id: int) -> MediaAsset:
     """Manual Selection (§33/§34): a persistent, intentional override that a
     later automatic run must never silently replace (enforced in
     `run_search_for_track` via `MediaAsset.manual_selection`).
+
+    Only safe to apply directly to the `MediaAsset` row when nothing else
+    could be concurrently or already writing `local_path` for it — see
+    `CandidateSelectionConflictError`. A track that already has a real file
+    must go through `app.services.replacement.replace_track_media` (the
+    `/replace` endpoint) instead, and a track with an acquisition attempt
+    currently in flight must be left to finish (or be Cancelled, if still
+    only QUEUED) before it can be reselected.
     """
     candidate = await session.get(VideoCandidate, video_candidate_id)
     if candidate is None or candidate.track_id != track_id:
         raise CandidateNotFoundError(f"No candidate {video_candidate_id} found for track {track_id}")
 
     asset = await _get_or_create_media_asset(session, track_id)
+    if asset.local_path is not None:
+        raise CandidateSelectionConflictError(
+            f"Track {track_id} already has a downloaded file — use Replace instead of Manual Selection."
+        )
+    if asset.state in _SELECT_UNSAFE_STATES:
+        raise CandidateSelectionConflictError(
+            f"Track {track_id} has a download already in progress (state={asset.state.value}) — "
+            "wait for it to finish (or Cancel it first, if still Queued) before selecting a different candidate."
+        )
+
     asset.video_candidate_id = candidate.id
     asset.source_reference = f"youtube:{candidate.youtube_video_id}"
     asset.manual_selection = True

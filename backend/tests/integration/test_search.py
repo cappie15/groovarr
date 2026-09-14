@@ -17,6 +17,7 @@ from app.integrations.youtube.data_api import RawCandidate
 from app.integrations.youtube.ytdlp_client import EnrichedInfo
 from app.services.search import (
     CandidateNotFoundError,
+    CandidateSelectionConflictError,
     _get_or_create_media_asset,
     get_wanted_tracks,
     run_search_for_track,
@@ -288,6 +289,118 @@ async def test_select_candidate_rejects_unknown_candidate_id(db_session):
     track = await _make_wanted_track(db_session)
     with pytest.raises(CandidateNotFoundError):
         await select_candidate(db_session, track.id, 9999)
+
+
+@pytest.mark.asyncio
+async def test_select_candidate_rejects_when_asset_already_has_a_file(db_session, monkeypatch):
+    """Live-testing regression (2026-09-14): `select_candidate` used to
+    blindly overwrite `video_candidate_id`/`source_reference`/`state` on any
+    MediaAsset, including one that already has a real downloaded file —
+    exactly the "silently orphan the old file" hazard `app.services.
+    replacement`'s module docstring warns about, since nothing then ever
+    routes the old file through reference-counted deletion. A track with a
+    real file must go through `/replace` (`replace_track_media`) instead.
+    """
+    track = await _make_wanted_track(db_session)
+    candidate_a = RawCandidate(youtube_video_id="a1", title="A", channel_id="c1", channel_name="Chan")
+    candidate_b = RawCandidate(youtube_video_id="b1", title="B", channel_id="c1", channel_name="Chan")
+    monkeypatch.setattr("app.services.search.discover_candidates", _fake_discover(candidate_a, candidate_b))
+    monkeypatch.setattr(
+        "app.services.search.enrich_candidate",
+        _fake_enrich(
+            {
+                "a1": EnrichedInfo(duration_s=210.0, media_type="video", width=1920, height=1080),
+                "b1": EnrichedInfo(duration_s=210.0, media_type="video", width=1920, height=1080),
+            }
+        ),
+    )
+    async with httpx.AsyncClient() as http:
+        await run_search_for_track(db_session, http, track)
+    candidates = (await db_session.scalars(select(VideoCandidate).where(VideoCandidate.track_id == track.id))).all()
+    picked = candidates[0]
+    other = candidates[1]
+    asset = await select_candidate(db_session, track.id, picked.id)
+
+    # Simulate the asset having already finished a real download (what
+    # `_import_asset` does on success) without going through the full
+    # acquisition pipeline here.
+    asset.local_path = "/music-videos/Chan - A.mp4"
+    asset.state = MediaState.AVAILABLE
+    await db_session.commit()
+
+    with pytest.raises(CandidateSelectionConflictError):
+        await select_candidate(db_session, track.id, other.id)
+
+    await db_session.refresh(asset)
+    assert asset.video_candidate_id == picked.id  # untouched
+    assert asset.local_path == "/music-videos/Chan - A.mp4"  # untouched
+
+
+@pytest.mark.asyncio
+async def test_select_candidate_rejects_when_a_download_is_in_flight(db_session, monkeypatch):
+    """Live-testing regression (2026-09-14): a real race actually hit this —
+    Automatic Search picked a winner, the background download queue claimed
+    it (MediaAsset.state -> DOWNLOADING) within its normal poll tick, and a
+    Manual Selection call for a different candidate landed moments later.
+    The old code reset the row straight back to CANDIDATE_SELECTED with no
+    check of its current state, so *two* acquisition pipeline runs ended up
+    racing against the same row; whichever's `_import_asset` call lost the
+    race left a fully-downloaded, real file on disk with nothing in the
+    database ever pointing back at it (not even eligible for the normal
+    reference-counted delete path). Refusing outright while a download is
+    in flight closes the race.
+    """
+    track = await _make_wanted_track(db_session)
+    candidate_a = RawCandidate(youtube_video_id="a1", title="A", channel_id="c1", channel_name="Chan")
+    candidate_b = RawCandidate(youtube_video_id="b1", title="B", channel_id="c1", channel_name="Chan")
+    monkeypatch.setattr("app.services.search.discover_candidates", _fake_discover(candidate_a, candidate_b))
+    monkeypatch.setattr(
+        "app.services.search.enrich_candidate",
+        _fake_enrich(
+            {
+                "a1": EnrichedInfo(duration_s=210.0, media_type="video", width=1920, height=1080),
+                "b1": EnrichedInfo(duration_s=210.0, media_type="video", width=1920, height=1080),
+            }
+        ),
+    )
+    async with httpx.AsyncClient() as http:
+        await run_search_for_track(db_session, http, track)
+    candidates = (await db_session.scalars(select(VideoCandidate).where(VideoCandidate.track_id == track.id))).all()
+    picked = candidates[0]
+    other = candidates[1]
+    asset = await select_candidate(db_session, track.id, picked.id)
+
+    # Simulate `claim_next_ready_asset` having claimed it for a real
+    # download already in progress, no file landed yet.
+    asset.state = MediaState.DOWNLOADING
+    await db_session.commit()
+
+    with pytest.raises(CandidateSelectionConflictError):
+        await select_candidate(db_session, track.id, other.id)
+
+    await db_session.refresh(asset)
+    assert asset.video_candidate_id == picked.id  # untouched
+    assert asset.state == MediaState.DOWNLOADING  # untouched
+
+
+@pytest.mark.asyncio
+async def test_select_candidate_still_works_before_any_download_starts(db_session, monkeypatch):
+    """Sanity check the fix isn't overbroad: the ordinary case (no file, no
+    in-flight download yet) must keep working exactly as before."""
+    track = await _make_wanted_track(db_session)
+    candidate_a = RawCandidate(youtube_video_id="a1", title="A", channel_id="c1", channel_name="Chan")
+    monkeypatch.setattr("app.services.search.discover_candidates", _fake_discover(candidate_a))
+    monkeypatch.setattr(
+        "app.services.search.enrich_candidate",
+        _fake_enrich({"a1": EnrichedInfo(duration_s=210.0, media_type="video", width=1920, height=1080)}),
+    )
+    async with httpx.AsyncClient() as http:
+        await run_search_for_track(db_session, http, track)
+    candidates = (await db_session.scalars(select(VideoCandidate).where(VideoCandidate.track_id == track.id))).all()
+
+    asset = await select_candidate(db_session, track.id, candidates[0].id)
+    assert asset.state == MediaState.CANDIDATE_SELECTED
+    assert asset.video_candidate_id == candidates[0].id
 
 
 @pytest.mark.asyncio

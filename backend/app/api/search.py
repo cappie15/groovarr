@@ -18,6 +18,7 @@ from app.db.session import get_session
 from app.services.replacement import ReplacementError, replace_track_media
 from app.services.search import (
     CandidateNotFoundError,
+    CandidateSelectionConflictError,
     SearchOutcome,
     get_candidates_for_track,
     get_wanted_tracks,
@@ -185,6 +186,8 @@ async def select_candidate_endpoint(
         asset = await select_candidate(session, track_id, body.video_candidate_id)
     except CandidateNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CandidateSelectionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     candidates = await get_candidates_for_track(session, track_id)
     return SearchOutcomeOut(
         track_id=track_id,
