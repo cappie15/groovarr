@@ -8,7 +8,7 @@ first use if it doesn't already exist (matters for a fresh bind-mounted
 from collections.abc import AsyncIterator
 from functools import lru_cache
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -34,7 +34,27 @@ def get_engine() -> AsyncEngine:
     never has the side effect of touching the filesystem or opening a
     database connection before Settings are actually needed.
     """
-    return create_async_engine(get_database_url(), future=True)
+    engine = create_async_engine(get_database_url(), future=True)
+
+    # Groovarr has a background download-queue worker committing writes
+    # (Phase 5) alongside ordinary FastAPI request handlers — genuine
+    # concurrent-writer traffic against one SQLite file, not a theoretical
+    # concern (a live test surfaced a real "database is locked" error from
+    # exactly this kind of contention). Two PRAGMAs address it, set on every
+    # new DBAPI connection this engine opens:
+    #   - WAL journal mode: readers no longer block behind a writer (and
+    #     vice versa) the way SQLite's default rollback-journal mode does.
+    #   - busy_timeout: when two writers still do collide, let SQLite's own
+    #     driver retry for up to this long before raising, instead of
+    #     failing near-instantly on the default ~0ms effective timeout.
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
+
+    return engine
 
 
 @lru_cache

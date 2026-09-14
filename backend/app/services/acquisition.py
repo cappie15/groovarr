@@ -35,7 +35,7 @@ from app.db.models.spotify import Track
 from app.domain.atomic_move import AtomicMoveError, atomic_move
 from app.domain.naming import NamingFields, disambiguate_filename, render_filename
 from app.integrations.acquisition.errors import AcquisitionError, NonRetryableDownloadError, ValidationError
-from app.integrations.acquisition.ffmpeg_mux import cleanup_paths, mux_to_mp4
+from app.integrations.acquisition.ffmpeg_mux import cleanup_paths, mux_media
 from app.integrations.acquisition.probe import ProbeResult, probe_media, resolution_label
 from app.integrations.acquisition.ytdlp_download import download_streams
 from app.integrations.lyrics.sidecar import write_lrc_sidecar
@@ -243,7 +243,12 @@ def _validate_probe(probe: ProbeResult, expected_duration_s: float | None) -> No
 
 
 async def _import_asset(
-    session: AsyncSession, asset: MediaAsset, track: Track | None, probe: ProbeResult, muxed_path: Path
+    session: AsyncSession,
+    asset: MediaAsset,
+    track: Track | None,
+    probe: ProbeResult,
+    muxed_path: Path,
+    container: str,
 ) -> None:
     settings = get_settings()
     media_root = settings.media_dir
@@ -256,7 +261,7 @@ async def _import_asset(
             title=track.canonical_title if track else "Unknown Title",
             year=track.release_year if track else None,
             quality=quality,
-            ext="mp4",
+            ext=container,
         )
     )
     existing = {p.name for p in media_root.glob("*") if p.is_file()}
@@ -269,7 +274,7 @@ async def _import_asset(
         raise ValidationError(f"Could not import the validated file: {exc}") from exc
 
     asset.local_path = str(dest_path)
-    asset.container = "mp4"
+    asset.container = container
     asset.video_codec = probe.video_codec
     asset.audio_codec = probe.audio_codec
     asset.resolution_label = quality
@@ -313,8 +318,7 @@ async def run_pipeline_core(
     asset.state = MediaState.PROCESSING
     await session.commit()
 
-    muxed_path = work_dir / "muxed.mp4"
-    mux_result = await mux_to_mp4(streams.video_path, streams.audio_path, muxed_path)
+    mux_result = await mux_media(streams.video_path, streams.audio_path, work_dir, app_settings.container_policy)
 
     expected_duration_s = (track.duration_ms / 1000) if track else None
     probe = await probe_media(mux_result.output_path)
@@ -340,7 +344,14 @@ async def run_pipeline_core(
         )
 
     # Phase 6 (Metadata): tag-writing is explicitly best-effort (§48).
-    if track is not None:
+    # `write_mp4_tags` only knows how to write MP4/M4V atoms — when the
+    # container policy produced an MKV instead (ContainerPolicy.
+    # PREFER_MP4_ALLOW_MKV, source codec pair not MP4-compatible), skip the
+    # attempt entirely rather than logging a confusing "tagging failed" for
+    # an outcome that's expected by design (the Settings copy for this
+    # policy tells the operator up front that MKV output depends on the
+    # `.lrc` sidecar and Groovarr's own UI instead of in-container tags).
+    if track is not None and mux_result.container == "mp4":
         tag_fields = _build_tag_fields(track)
         if lyrics_row is not None and lyrics_row.kind != LyricsKind.MISSING and lyrics_row.content:
             tag_fields = dataclasses.replace(tag_fields, lyrics=lyrics_row.content)
@@ -364,11 +375,21 @@ async def run_pipeline_core(
         _validate_probe(probe, expected_duration_s)
     else:
         asset.tags_written = False
+        if track is not None:
+            logger.info("acquisition.tagging_skipped_non_mp4_container", media_asset_id=asset.id)
+            record_event(
+                session,
+                track_id=track.id,
+                media_asset_id=asset.id,
+                event_type="metadata.tags_skipped",
+                detail=f"Container is {mux_result.container!r} — embedded MP4-style tags aren't written; "
+                "relying on the .lrc sidecar and Groovarr's own UI for this file's metadata.",
+            )
 
     asset.state = MediaState.IMPORTING
     await session.commit()
 
-    await _import_asset(session, asset, track, probe, mux_result.output_path)
+    await _import_asset(session, asset, track, probe, mux_result.output_path, mux_result.container)
 
     # `.lrc` sidecar (§2-C/§3, the DEFAULT/authoritative lyrics artifact):
     # only writable now that _import_asset has moved the file to its final

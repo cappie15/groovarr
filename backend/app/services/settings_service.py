@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.secrets import decrypt_secret, encrypt_secret
-from app.db.models.settings import SETTINGS_SINGLETON_ID, AppSettings
+from app.db.models.settings import SETTINGS_SINGLETON_ID, AppSettings, ContainerPolicy
 
 
 async def get_app_settings(session: AsyncSession) -> AppSettings:
@@ -144,6 +144,18 @@ async def set_download_limits(
     row = await get_app_settings(session)
     row.max_concurrent_downloads = max_concurrent_downloads
     row.max_download_attempts = max_download_attempts
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+async def set_container_policy(session: AsyncSession, policy: ContainerPolicy) -> AppSettings:
+    """§2 row D: which output-container tradeoff the acquisition pipeline
+    uses when the source codec pair isn't natively MP4-compatible. Default
+    (`ContainerPolicy.ALWAYS_MP4`) is unchanged by this setting existing —
+    this only makes the owner's original decision overridable."""
+    row = await get_app_settings(session)
+    row.container_policy = policy
     await session.commit()
     await session.refresh(row)
     return row

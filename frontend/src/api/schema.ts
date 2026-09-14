@@ -564,6 +564,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Media Settings */
+        put: operations["update_media_settings_api_settings_media_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/spotify/oauth/authorize": {
         parameters: {
             query?: never;
@@ -758,6 +775,16 @@ export interface components {
             /** Url Or Id */
             url_or_id: string;
         };
+        /**
+         * ContainerPolicy
+         * @description Controls what `app/integrations/acquisition/ffmpeg_mux.py` does when
+         *     the source video/audio codec pair isn't natively MP4-compatible (a
+         *     stream-copy into MP4 is always tried first regardless of this setting —
+         *     it only affects what happens when that's not possible). See §2 row D of
+         *     the architecture doc for the full research tradeoff this encodes.
+         * @enum {string}
+         */
+        ContainerPolicy: "always_mp4" | "prefer_mp4_allow_mkv";
         /** DashboardSummary */
         DashboardSummary: {
             /** Connected Playlists */
@@ -963,6 +990,10 @@ export interface components {
             /** Needs Organize */
             needs_organize: boolean;
         };
+        /** MediaSettingsRequest */
+        MediaSettingsRequest: {
+            container_policy: components["schemas"]["ContainerPolicy"];
+        };
         /**
          * MediaState
          * @description A media asset's own lifecycle — never mutated by external-server sync
@@ -1103,6 +1134,7 @@ export interface components {
             max_download_attempts: number;
             /** Lyrics Enabled */
             lyrics_enabled: boolean;
+            container_policy: components["schemas"]["ContainerPolicy"];
         };
         /** SpotifyCredentialsRequest */
         SpotifyCredentialsRequest: {
@@ -2183,6 +2215,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["LyricsSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_media_settings_api_settings_media_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaSettingsRequest"];
             };
         };
         responses: {

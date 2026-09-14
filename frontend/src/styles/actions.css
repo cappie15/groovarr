@@ -110,6 +110,21 @@
   cursor: pointer;
 }
 
+.radio-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  max-width: 640px;
+}
+
+.radio-field input[type='radio'] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
 /* Lightweight modal — used for confirmations and small forms that need
  * focus/attention (e.g. disconnect confirmation, replace-file candidate
  * picker) without pulling in a dialog library. */

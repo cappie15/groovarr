@@ -79,6 +79,17 @@ export function updateMonitorBetterVersions(enabled: boolean, options?: RequestO
   return apiClient.put<SettingsOut>('/settings/monitor-better-versions', { enabled }, options);
 }
 
+export type ContainerPolicy = components['schemas']['ContainerPolicy'];
+
+/** PUT /api/settings/media — §2 row D: whether the acquisition pipeline
+ * transcodes to MP4 (default) or falls back to a stream-copy MKV when the
+ * source codec pair isn't natively MP4-compatible. This choice affects
+ * whether artist/title/artwork/lyrics metadata is reliably stored in the
+ * video container itself (see the Settings page copy for the full tradeoff). */
+export function updateContainerPolicy(policy: ContainerPolicy, options?: RequestOptions): Promise<SettingsOut> {
+  return apiClient.put<SettingsOut>('/settings/media', { container_policy: policy }, options);
+}
+
 /** POST /api/jellyfin/test */
 export function testJellyfinConnection(options?: RequestOptions): Promise<{ ok: boolean }> {
   return apiClient.post<{ ok: boolean }>('/jellyfin/test', undefined, options);

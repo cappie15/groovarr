@@ -8,6 +8,7 @@ import {
   spotifyOAuthAuthorizeUrl,
   testJellyfinConnection,
   testPlexConnection,
+  updateContainerPolicy,
   updateDownloadSettings,
   updateJellyfinConfig,
   updateLyricsEnabled,
@@ -17,6 +18,7 @@ import {
   updateSpotifyCredentials,
   updateSpotifyUserOAuthEnabled,
   updateSyncInterval,
+  type ContainerPolicy,
   type JellyfinUserOut,
   type PlexLibrarySectionOut,
   type SettingsOut,
@@ -631,6 +633,68 @@ function DownloadSection({ settings, onSaved }: { settings: SettingsOut; onSaved
   );
 }
 
+// ---------------------------------------------------------------------------
+// Media Management — container policy. §2 row D: the project owner's
+// original default ("always transcode to MP4") stays the default, but is
+// now an overridable setting. The copy below must state, per the owner's
+// explicit instruction, that this choice affects whether metadata is
+// reliably stored/read in the video container — do not soften or omit that.
+// ---------------------------------------------------------------------------
+function MediaManagementSection({ settings, onSaved }: { settings: SettingsOut; onSaved: (s: SettingsOut) => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function choose(policy: ContainerPolicy) {
+    if (policy === settings.container_policy) return;
+    setBusy(true);
+    try {
+      onSaved(await updateContainerPolicy(policy));
+      toast.showInfo('Container policy saved.');
+    } catch (err) {
+      toast.showError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SettingsSection
+      title="Media Management"
+      hint="Controls what happens when a source video/audio pair isn't already MP4-compatible and a stream-copy into MP4 isn't possible. This setting directly affects whether artist/title/artwork/lyrics metadata is reliably stored in the video file itself — read both options below before changing it."
+    >
+      <label className="radio-field">
+        <input
+          type="radio"
+          name="container-policy"
+          checked={settings.container_policy === 'always_mp4'}
+          disabled={busy}
+          onChange={() => choose('always_mp4')}
+        />
+        <span>
+          <strong>Always transcode to MP4</strong> (recommended, default) — guarantees artist/title/artwork/lyrics
+          tags are reliably stored in the file and read correctly by VLC, Jellyfin, and Plex, at the cost of
+          re-encoding video when the source isn't already MP4-compatible.
+        </span>
+      </label>
+      <label className="radio-field" style={{ marginTop: 8 }}>
+        <input
+          type="radio"
+          name="container-policy"
+          checked={settings.container_policy === 'prefer_mp4_allow_mkv'}
+          disabled={busy}
+          onChange={() => choose('prefer_mp4_allow_mkv')}
+        />
+        <span>
+          <strong>Prefer MP4, allow MKV</strong> — avoids re-encoding by falling back to MKV (via a lossless
+          stream-copy) when needed. MKV's embedded metadata is <em>not</em> reliably read by Plex, and only
+          partially by Jellyfin — files produced this way depend on the <code>.lrc</code> lyrics sidecar and
+          Groovarr's own UI instead of in-app/in-container metadata.
+        </span>
+      </label>
+    </SettingsSection>
+  );
+}
+
 function LyricsSection({ settings, onSaved }: { settings: SettingsOut; onSaved: (s: SettingsOut) => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -766,6 +830,7 @@ export default function Settings() {
       <PlexSection settings={settings} onSaved={setSettings} />
       <MatchingSection settings={settings} onSaved={setSettings} />
       <DownloadSection settings={settings} onSaved={setSettings} />
+      <MediaManagementSection settings={settings} onSaved={setSettings} />
       <LyricsSection settings={settings} onSaved={setSettings} />
       <MonitorBetterVersionsSection settings={settings} onSaved={setSettings} />
 

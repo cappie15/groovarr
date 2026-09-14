@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.settings import MONITOR_BETTER_VERSIONS_WARNING, AppSettings
+from app.db.models.settings import MONITOR_BETTER_VERSIONS_WARNING, AppSettings, ContainerPolicy
 from app.db.session import get_session
 from app.services.settings_service import (
     get_app_settings,
     set_automatic_match_threshold,
+    set_container_policy,
     set_default_sync_interval_hours,
     set_download_limits,
     set_jellyfin_config,
@@ -66,6 +67,13 @@ class SettingsOut(BaseModel):
     # of this toggle.
     lyrics_enabled: bool
 
+    # §2 row D / §84 Media Management sub-section: which output-container
+    # tradeoff the acquisition pipeline uses when the source codec pair
+    # isn't natively MP4-compatible. Default is "always_mp4" (the project
+    # owner's original decision) — this setting only makes it overridable,
+    # it does not change the default for existing/new installs.
+    container_policy: ContainerPolicy
+
 
 def _to_out(row: AppSettings) -> SettingsOut:
     return SettingsOut(
@@ -91,6 +99,7 @@ def _to_out(row: AppSettings) -> SettingsOut:
         max_concurrent_downloads=row.max_concurrent_downloads,
         max_download_attempts=row.max_download_attempts,
         lyrics_enabled=row.lyrics_enabled,
+        container_policy=row.container_policy,
     )
 
 
@@ -234,4 +243,16 @@ async def update_lyrics_settings(
     body: LyricsSettingsRequest, session: AsyncSession = Depends(get_session)
 ) -> SettingsOut:
     row = await set_lyrics_enabled(session, body.enabled)
+    return _to_out(row)
+
+
+class MediaSettingsRequest(BaseModel):
+    container_policy: ContainerPolicy
+
+
+@router.put("/media", response_model=SettingsOut)
+async def update_media_settings(
+    body: MediaSettingsRequest, session: AsyncSession = Depends(get_session)
+) -> SettingsOut:
+    row = await set_container_policy(session, body.container_policy)
     return _to_out(row)

@@ -8,9 +8,11 @@ auth mode + default sync interval). Later phases extend this table rather
 than replacing it.
 """
 
+import enum
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -19,6 +21,30 @@ from app.db.base import Base
 #: single-row table (rather than a free-form key/value table) keeps the
 #: schema typed and migratable, per §6/§84's "don't over-engineer" guidance.
 SETTINGS_SINGLETON_ID = 1
+
+
+class ContainerPolicy(enum.StrEnum):
+    """Controls what `app/integrations/acquisition/ffmpeg_mux.py` does when
+    the source video/audio codec pair isn't natively MP4-compatible (a
+    stream-copy into MP4 is always tried first regardless of this setting —
+    it only affects what happens when that's not possible). See §2 row D of
+    the architecture doc for the full research tradeoff this encodes.
+    """
+
+    #: The project owner's original, still-default decision (§2 row D):
+    #: always finish in MP4, transcoding when the source codec isn't
+    #: MP4-compatible. Guarantees artist/title/artwork/lyrics tags are
+    #: reliably stored in the container and read correctly by VLC, Jellyfin,
+    #: and Plex, at the cost of re-encoding video in that case.
+    ALWAYS_MP4 = "always_mp4"
+
+    #: Avoids the transcode: falls back to MKV via pure stream-copy instead
+    #: of re-encoding when MP4 isn't natively reachable. Trades away
+    #: metadata reliability to get there — Plex does not read embedded MKV
+    #: title/artist/artwork tags at all, and Jellyfin's support is only
+    #: partial, so a file produced this way depends on the `.lrc` sidecar
+    #: and Groovarr's own UI rather than in-app/in-container metadata.
+    PREFER_MP4_ALLOW_MKV = "prefer_mp4_allow_mkv"
 
 
 class AppSettings(Base):
@@ -110,6 +136,17 @@ class AppSettings(Base):
     # surfaced with (§36's explicit requirement that the UI not describe this
     # merely as "quality upgrades").
     monitor_better_versions_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Container output policy (§2 row D): default preserves the owner's
+    # original "always MP4, even if that means transcoding" decision — this
+    # field only makes that choice overridable, it does not change the
+    # default for existing/new installs. See `ContainerPolicy` above for
+    # what each value means and the metadata-reliability tradeoff involved.
+    container_policy: Mapped[ContainerPolicy] = mapped_column(
+        SAEnum(ContainerPolicy, native_enum=False, length=32),
+        default=ContainerPolicy.ALWAYS_MP4,
+        nullable=False,
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid only
         return "<AppSettings>"
