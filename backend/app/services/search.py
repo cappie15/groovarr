@@ -17,6 +17,8 @@ retry/backoff policy for MISSING tracks belongs to Phase 5 (§50) — this
 phase only discovers and scores candidates, it never downloads anything.
 """
 
+import asyncio
+import random
 from dataclasses import dataclass
 
 import httpx
@@ -270,9 +272,40 @@ async def run_search_for_track(
     )
 
 
+# Jittered pause between tracks in a bulk "Search All Wanted" sweep only —
+# a single-track search (run_search_for_track called directly, e.g. from
+# the Manual/Automatic Search UI for one track) is never paced.
+#
+# Exists because a live deployment of this project hit a real
+# `HTTP Error 403: Forbidden` from YouTube during testing, consistent with
+# anti-bot rate-limiting — a burst of many requests right after a large
+# Spotify playlist import (which can make hundreds of tracks "Wanted" at
+# once) makes that materially worse. The project deliberately chose
+# cooperative request pacing over any form of proxy rotation or other
+# detection-evasion technique (discussed and explicitly rejected — public/
+# free proxies are themselves heavily blocked and unreliable, and Groovarr
+# should be a good API citizen rather than evade rate-limiting on
+# principle). Mirrors the jitter pattern already used by the Spotify sync
+# scheduler and LRCLIB's client-side rate limiter elsewhere in this
+# codebase.
+_BULK_SEARCH_MIN_DELAY_S = 2.0
+_BULK_SEARCH_MAX_DELAY_S = 5.0
+
+
+async def _pace_bulk_search() -> None:
+    delay = random.uniform(_BULK_SEARCH_MIN_DELAY_S, _BULK_SEARCH_MAX_DELAY_S)
+    logger.info("search.bulk_pacing_delay", delay_s=round(delay, 2))
+    await asyncio.sleep(delay)
+
+
 async def run_search_for_all_wanted(session: AsyncSession, http: httpx.AsyncClient) -> list[SearchOutcome]:
     tracks = await get_wanted_tracks(session, limit=None)
-    return [await run_search_for_track(session, http, track) for track in tracks]
+    outcomes: list[SearchOutcome] = []
+    for i, track in enumerate(tracks):
+        if i > 0:
+            await _pace_bulk_search()
+        outcomes.append(await run_search_for_track(session, http, track))
+    return outcomes
 
 
 async def get_candidates_for_track(session: AsyncSession, track_id: int) -> list[VideoCandidate]:

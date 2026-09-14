@@ -24,7 +24,7 @@ from app.services.search import (
 )
 
 
-async def _make_wanted_track(session, **overrides) -> Track:
+async def _make_wanted_track(session, *, playlist_spotify_id: str = "p1", **overrides) -> Track:
     defaults = dict(
         spotify_track_id="t1",
         canonical_artist="Daft Punk",
@@ -37,7 +37,7 @@ async def _make_wanted_track(session, **overrides) -> Track:
     session.add(track)
     await session.flush()
 
-    playlist = SpotifyPlaylist(spotify_id="p1", name="Playlist")
+    playlist = SpotifyPlaylist(spotify_id=playlist_spotify_id, name="Playlist")
     session.add(playlist)
     await session.flush()
     session.add(PlaylistEntry(playlist_id=playlist.id, track_id=track.id, position=0, occurrence_index=0))
@@ -414,3 +414,67 @@ async def test_manual_selection_also_wires_up_playlist_media_reference(db_sessio
         )
     )
     assert ref is not None
+
+
+@pytest.mark.asyncio
+async def test_bulk_sweep_paces_between_tracks_but_not_before_the_first(db_session, monkeypatch):
+    """`run_search_for_all_wanted` must pause between tracks (§ rationale in
+    app.services.search._pace_bulk_search: a real YouTube 403 this project
+    hit, mitigated by cooperative pacing rather than proxy rotation) but
+    never before the very first track — an N-track sweep should pace
+    exactly N-1 times, not N.
+    """
+    from app.services import search as search_module
+
+    track_a = await _make_wanted_track(
+        db_session, playlist_spotify_id="pa", spotify_track_id="ta", canonical_title="Track A"
+    )
+    track_b = await _make_wanted_track(
+        db_session, playlist_spotify_id="pb", spotify_track_id="tb", canonical_title="Track B"
+    )
+    track_c = await _make_wanted_track(
+        db_session, playlist_spotify_id="pc", spotify_track_id="tc", canonical_title="Track C"
+    )
+
+    monkeypatch.setattr("app.services.search.discover_candidates", _fake_discover())
+    monkeypatch.setattr("app.services.search.enrich_candidate", _fake_enrich({}))
+
+    pace_calls = 0
+
+    async def _fast_pace() -> None:
+        nonlocal pace_calls
+        pace_calls += 1
+
+    monkeypatch.setattr(search_module, "_pace_bulk_search", _fast_pace)
+
+    async with httpx.AsyncClient() as http:
+        outcomes = await search_module.run_search_for_all_wanted(db_session, http)
+
+    assert {track_a.id, track_b.id, track_c.id} == {o.media_asset.track_id for o in outcomes}
+    assert pace_calls == 2  # 3 tracks -> paced between them, not before the first
+
+
+@pytest.mark.asyncio
+async def test_single_track_search_is_never_paced(db_session, monkeypatch):
+    """A single user-initiated search (Manual/Automatic Search UI for one
+    track) must stay instant — pacing is specifically about avoiding a
+    burst across MANY tracks, not slowing down one explicit action.
+    """
+    from app.services import search as search_module
+
+    track = await _make_wanted_track(db_session)
+    monkeypatch.setattr("app.services.search.discover_candidates", _fake_discover())
+    monkeypatch.setattr("app.services.search.enrich_candidate", _fake_enrich({}))
+
+    pace_calls = 0
+
+    async def _counting_pace() -> None:
+        nonlocal pace_calls
+        pace_calls += 1
+
+    monkeypatch.setattr(search_module, "_pace_bulk_search", _counting_pace)
+
+    async with httpx.AsyncClient() as http:
+        await run_search_for_track(db_session, http, track)
+
+    assert pace_calls == 0

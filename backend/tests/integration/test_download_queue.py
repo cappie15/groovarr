@@ -36,6 +36,15 @@ async def _make_candidate_selected_asset(session, *, label: str) -> MediaAsset:
 
 @pytest.mark.asyncio
 async def test_bounded_concurrency_never_exceeds_configured_limit(db_session, monkeypatch):
+    # This test is about the concurrency CAP, not job-start pacing (that's
+    # test_job_starts_within_one_tick_are_paced_but_not_before_the_first,
+    # below) — the real 1-3s jittered pacing delay would blow through this
+    # test's tight polling budget for no reason relevant to what it checks.
+    async def _instant_pace() -> None:
+        return None
+
+    monkeypatch.setattr("app.jobs.download_queue._pace_job_start", _instant_pace)
+
     app_settings = await get_app_settings(db_session)
     app_settings.max_concurrent_downloads = 2
     await db_session.commit()
@@ -117,3 +126,41 @@ async def test_reconcile_interrupted_assets_requeues_stuck_media_and_fails_the_d
 async def test_reconcile_is_idempotent_when_nothing_is_stuck(db_session):
     await _make_candidate_selected_asset(db_session, label="fine")
     assert await reconcile_interrupted_assets(db_session) == 0
+
+
+@pytest.mark.asyncio
+async def test_job_starts_within_one_tick_are_paced_but_not_before_the_first(db_session, monkeypatch):
+    """Distinct from the concurrency cap (which bounds how many downloads
+    run AT ONCE): claiming 3 ready assets within a single tick must pace
+    the *starts* — 2 pacing calls for 3 starts, none before the first —
+    so their yt-dlp processes don't all issue YouTube requests in the same
+    instant (see app.jobs.download_queue._pace_job_start's docstring).
+    """
+    app_settings = await get_app_settings(db_session)
+    app_settings.max_concurrent_downloads = 5  # generous headroom so all 3 claim within one tick
+    await db_session.commit()
+
+    assets = [await _make_candidate_selected_asset(db_session, label=f"pace{i}") for i in range(3)]
+
+    async def fake_process(session, asset):
+        asset.state = MediaState.AVAILABLE
+        await session.commit()
+
+    monkeypatch.setattr("app.jobs.download_queue.process_media_asset", fake_process)
+
+    pace_calls = 0
+
+    async def _fast_pace() -> None:
+        nonlocal pace_calls
+        pace_calls += 1
+
+    monkeypatch.setattr("app.jobs.download_queue._pace_job_start", _fast_pace)
+
+    queue = DownloadQueue(poll_interval_s=0.05)
+    await queue._tick()
+    await asyncio.gather(*queue._workers, return_exceptions=True)
+
+    assert pace_calls == 2  # 3 starts in one tick -> paced between them, not before the first
+    for asset in assets:
+        await db_session.refresh(asset)
+        assert asset.state == MediaState.AVAILABLE

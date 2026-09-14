@@ -11,6 +11,7 @@ and crash-recovery reconciliation on startup (§78).
 """
 
 import asyncio
+import random
 
 import structlog
 
@@ -23,6 +24,23 @@ from app.services.settings_service import get_app_settings
 logger = structlog.get_logger(__name__)
 
 _POLL_INTERVAL_S = 5
+
+# Jittered minimum gap between starting successive downloads within the
+# same poll tick — distinct from `max_concurrent_downloads` (which bounds
+# how many run AT ONCE). Without this, many tracks becoming
+# CandidateSelected in the same instant (e.g. right after a bulk search
+# sweep — see app.services.search's `_pace_bulk_search`, same rationale: a
+# real YouTube 403 this project hit, and pacing chosen over any form of
+# proxy rotation) would spin up several yt-dlp processes, each issuing
+# YouTube requests, in the same moment.
+_JOB_START_MIN_GAP_S = 1.0
+_JOB_START_MAX_GAP_S = 3.0
+
+
+async def _pace_job_start() -> None:
+    delay = random.uniform(_JOB_START_MIN_GAP_S, _JOB_START_MAX_GAP_S)
+    logger.info("download_queue.job_start_pacing_delay", delay_s=round(delay, 2))
+    await asyncio.sleep(delay)
 
 
 class DownloadQueue:
@@ -79,14 +97,18 @@ class DownloadQueue:
         self._workers = {t for t in self._workers if not t.done()}
         slots_free = max_concurrent - len(self._workers)
 
+        started_this_tick = 0
         for _ in range(max(slots_free, 0)):
             async with session_factory() as session:
                 asset = await claim_next_ready_asset(session)
                 asset_id = asset.id if asset is not None else None
             if asset_id is None:
                 break
+            if started_this_tick > 0:
+                await _pace_job_start()
             task = asyncio.create_task(self._run_one(asset_id), name=f"download-{asset_id}")
             self._workers.add(task)
+            started_this_tick += 1
 
     async def _run_one(self, media_asset_id: int) -> None:
         session_factory = get_sessionmaker()
