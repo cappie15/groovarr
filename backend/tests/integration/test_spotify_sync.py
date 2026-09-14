@@ -5,6 +5,8 @@ Phase 2: initial import, a no-op re-sync, a diff-producing re-sync, duplicate
 occurrence preservation, and that disconnect never deletes existing data.
 """
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
@@ -412,3 +414,44 @@ async def test_tracks_endpoint_access_denied_falls_back_to_pkce_user_token(db_se
         await db_session.execute(select(PlaylistEntry).where(PlaylistEntry.playlist_id == playlist.id))
     ).scalars().all()
     assert len(entries) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_caches_both_playlist_and_track_artwork(db_session, tmp_path, monkeypatch):
+    """Regression test for a real gap found via live verification (2026-09-14):
+    `Track.album_artwork_path` existed as a column but nothing ever populated
+    it, so mutagen tagging always had no cover art to embed. Playlist-level
+    artwork caching had no test coverage either. Covers both.
+    """
+    monkeypatch.setenv("CONFIG_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    await _configure_credentials(db_session)
+
+    pid = playlist_id(30)
+    backend = FakeSpotifyBackend()
+    backend.set_playlist(
+        pid, name="Artwork Test", snapshot_id="snap-1", images=[{"url": "https://fake-image.test/playlist-cover.jpg"}]
+    )
+    backend.set_tracks(
+        pid,
+        [
+            make_track("track-with-art", "Has Art", album_image_url="https://fake-image.test/track-cover.jpg"),
+            make_track("track-no-art", "No Art"),  # no album_image_url — album.images stays absent
+        ],
+    )
+
+    async with backend.build_client() as http:
+        playlist = await connect_playlist(db_session, http, pid)
+
+    assert playlist.artwork_path is not None
+    assert Path(playlist.artwork_path).is_file()
+    assert Path(playlist.artwork_path).read_bytes()[:2] == b"\xff\xd8"  # real JPEG magic bytes
+
+    with_art = await db_session.scalar(select(Track).where(Track.spotify_track_id == "track-with-art"))
+    assert with_art.album_artwork_path is not None
+    assert Path(with_art.album_artwork_path).is_file()
+
+    no_art = await db_session.scalar(select(Track).where(Track.spotify_track_id == "track-no-art"))
+    assert no_art.album_artwork_path is None
+
+    get_settings.cache_clear()

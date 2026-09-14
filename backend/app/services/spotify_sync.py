@@ -10,6 +10,7 @@ the default no-login mode purely from its public Spotify ID.
 import random
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import structlog
@@ -174,7 +175,7 @@ async def sync_playlist(
         if not raw_track or raw_track.get("is_local") or not raw_track.get("id"):
             continue
 
-        track = await _upsert_track(session, raw_track)
+        track = await _upsert_track(session, http, raw_track)
         tracks_upserted += 1
 
         occurrence_index = occurrence_counts.get(track.id, 0)
@@ -323,7 +324,7 @@ async def _get_user_access_token(session: AsyncSession, http: httpx.AsyncClient,
     return token_response["access_token"]  # type: ignore[no-any-return]
 
 
-async def _upsert_track(session: AsyncSession, raw_track: dict) -> Track:
+async def _upsert_track(session: AsyncSession, http: httpx.AsyncClient, raw_track: dict) -> Track:
     spotify_track_id: str = raw_track["id"]
     track = await session.scalar(select(Track).where(Track.spotify_track_id == spotify_track_id))
 
@@ -349,6 +350,17 @@ async def _upsert_track(session: AsyncSession, raw_track: dict) -> Track:
     track.duration_ms = int(raw_track.get("duration_ms") or 0)
     track.explicit = bool(raw_track.get("explicit", False))
 
+    # LIVE-VERIFIED GAP (2026-09-14): `Track.album_artwork_path` existed as a
+    # column but nothing ever populated it — only playlist-cover art was
+    # cached, so every acquired video shipped with no embedded artwork at
+    # all (confirmed via mutagen on a real downloaded file: `covr` was
+    # `None`). Fixed here: cache the track's own album image the same way
+    # `_cache_playlist_artwork` already does for playlists, skipping the
+    # fetch when a cached file already exists (album art doesn't change).
+    album_images = album.get("images") or []
+    if album_images and not (track.album_artwork_path and Path(track.album_artwork_path).is_file()):
+        await _cache_track_artwork(http, track, album_images[0]["url"])
+
     await session.flush()  # assign track.id (needed by the caller) without committing yet
     return track
 
@@ -369,6 +381,25 @@ async def _cache_playlist_artwork(http: httpx.AsyncClient, playlist: SpotifyPlay
         playlist.artwork_path = str(dest)
     except (httpx.HTTPError, OSError):
         logger.warning("spotify.artwork_cache_failed", spotify_id=playlist.spotify_id)
+
+
+async def _cache_track_artwork(http: httpx.AsyncClient, track: Track, image_url: str) -> None:
+    """Same rationale as `_cache_playlist_artwork` (Spotify image URLs
+    expire quickly, so cache bytes not URLs) — this is what lets Phase 6's
+    tagging step embed real cover art (`covr`) instead of silently having
+    nothing to embed. Best-effort: never fails the sync.
+    """
+    settings = get_settings()
+    artwork_dir = settings.config_dir / "artwork" / "tracks"
+    try:
+        artwork_dir.mkdir(parents=True, exist_ok=True)
+        response = await http.get(image_url, timeout=10.0)
+        response.raise_for_status()
+        dest = artwork_dir / f"{track.spotify_track_id}.jpg"
+        dest.write_bytes(response.content)
+        track.album_artwork_path = str(dest)
+    except (httpx.HTTPError, OSError):
+        logger.warning("spotify.track_artwork_cache_failed", spotify_track_id=track.spotify_track_id)
 
 
 def _schedule_next_sync(playlist: SpotifyPlaylist) -> None:

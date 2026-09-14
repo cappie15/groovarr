@@ -11,6 +11,12 @@ import httpx
 _TOKEN_URL = "https://accounts.spotify.com/api/token"
 _PLAYLIST_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)$")
 _ITEMS_RE = re.compile(r"https://api\.spotify\.com/v1/playlists/([^/?]+)/items")
+_IMAGE_RE = re.compile(r"https://fake-image\.test/(.+)")
+
+# A syntactically-valid, tiny JPEG (the real Phase 2/6 artwork-caching code
+# just writes response bytes to disk — content doesn't need to be a real
+# photo for tests, but using genuine JPEG magic bytes keeps it honest).
+FAKE_JPEG_BYTES = bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffd9")
 
 
 class FakeSpotifyBackend:
@@ -80,6 +86,12 @@ class FakeSpotifyBackend:
                 return httpx.Response(404, json={"error": {"status": 404, "message": "Not found"}})
             return httpx.Response(200, json=data)
 
+        if _IMAGE_RE.match(base):
+            # Serves both playlist cover images and track/album artwork —
+            # real Spotify puts these on a separate CDN host, but this
+            # fixture only needs a URL its own transport will answer.
+            return httpx.Response(200, content=FAKE_JPEG_BYTES, headers={"content-type": "image/jpeg"})
+
         return httpx.Response(404, json={"error": f"unhandled path in FakeSpotifyBackend: {url}"})
 
     def build_client(self) -> httpx.AsyncClient:
@@ -99,7 +111,11 @@ def make_track(
     duration_ms: int = 200_000,
     explicit: bool = False,
     release_date: str = "2020-01-01",
+    album_image_url: str | None = None,
 ) -> dict:
+    album: dict = {"release_date": release_date, "release_date_precision": "day"}
+    if album_image_url:
+        album["images"] = [{"url": album_image_url, "height": 640, "width": 640}]
     return {
         "id": spotify_track_id,
         "name": name,
@@ -107,5 +123,5 @@ def make_track(
         "explicit": explicit,
         "is_local": False,
         "artists": [{"name": a} for a in (artists or ["Test Artist"])],
-        "album": {"release_date": release_date, "release_date_precision": "day"},
+        "album": album,
     }
