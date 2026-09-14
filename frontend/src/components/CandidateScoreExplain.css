@@ -1,0 +1,121 @@
+/* Renders a VideoCandidate's score + score_breakdown as the "+Exact artist /
+ * -Duration mismatch" style explanation described in the architecture doc
+ * (§21) — the single most important UI moment for the project's
+ * "explainable decisions" principle, so this deliberately isn't a raw JSON
+ * dump. Shared by the Automatic Search and Manual Search pages. */
+
+.candidate-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  padding: 14px 16px;
+  display: flex;
+  gap: 14px;
+}
+
+.candidate-card__thumb {
+  width: 120px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.candidate-card__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.candidate-card__title {
+  font-weight: 600;
+  font-size: 13.5px;
+  margin: 0 0 2px;
+  overflow-wrap: anywhere;
+}
+
+.candidate-card__meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.candidate-score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.candidate-score__value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-score__value--automatic {
+  color: var(--success, #3fb950);
+}
+
+.candidate-score__value--manual-review {
+  color: var(--warning, #d4a72c);
+}
+
+.candidate-score__label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.score-breakdown {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.score-breakdown__line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.score-breakdown__delta {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.score-breakdown__delta--positive {
+  color: var(--success, #3fb950);
+}
+
+.score-breakdown__delta--negative {
+  color: #d94f4f;
+}
+
+.score-breakdown__explanation {
+  color: var(--text);
+}
+
+.candidate-rejection-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rejection-flag {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(217, 79, 79, 0.12);
+  color: #d94f4f;
+  border: 1px solid rgba(217, 79, 79, 0.35);
+}

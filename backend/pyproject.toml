@@ -1,0 +1,49 @@
+[project]
+name = "groovarr-backend"
+version = "0.1.0"
+description = "Groovarr backend — Spotify-to-local-library music video manager"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "sqlalchemy[asyncio]>=2.0,<3.0",
+  "alembic>=1.13,<2.0",
+  "aiosqlite>=0.20,<1.0",
+  "pydantic-settings>=2.4,<3.0",
+  "structlog>=24.1,<25.0",
+  "httpx>=0.27,<1.0",
+  "cryptography>=43.0,<44.0",
+  "mutagen>=1.47,<2.0",
+  "yt-dlp>=2024.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0,<9.0",
+  "pytest-asyncio>=0.24,<1.0",
+  "ruff>=0.6,<1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# Alembic-generated revision scripts follow Alembic's own template/style, not
+# ours — don't hold auto-generated migration boilerplate to app lint rules.
+extend-exclude = ["app/db/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008 flags `Depends(...)` as a "function call in a default argument" —
+# that's FastAPI's own idiomatic dependency-injection pattern, not a bug.
+ignore = ["B008"]

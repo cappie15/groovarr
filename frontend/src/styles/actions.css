@@ -1,0 +1,206 @@
+/* Shared action/form primitives (buttons, inline forms, a lightweight modal)
+ * used by any page with row-level or page-level actions — Playlists/Tracks
+ * and later pages. Kept in one shared file rather than duplicated per page,
+ * following the same "small, composable primitive" approach as the
+ * DataTable/StatusBadge/Toast components.
+ */
+
+.btn {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.btn--danger {
+  color: #d94f4f;
+  border-color: #d94f4f;
+}
+
+.btn--small {
+  padding: 3px 8px;
+  font-size: 11.5px;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.page-toolbar h1 {
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.field label {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.field input[type='text'],
+.field input[type='url'],
+.field select {
+  font: inherit;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* Lightweight modal — used for confirmations and small forms that need
+ * focus/attention (e.g. disconnect confirmation, replace-file candidate
+ * picker) without pulling in a dialog library. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 16, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.modal h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+
+.modal p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.subtle-note {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.form-error {
+  font-size: 12px;
+  color: #d94f4f;
+  margin: 0;
+}
+
+/* Settings page: each sub-section (Spotify/Jellyfin/Plex/Matching/...) saves
+ * independently, so each gets its own bordered card rather than one giant
+ * form — makes the save boundary visually obvious. */
+.settings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  background: var(--bg-elevated);
+}
+
+.settings-section h2 {
+  font-size: 13.5px;
+  margin: 0 0 4px;
+}
+
+.settings-section__hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+  max-width: 68ch;
+}
+
+.settings-section__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.settings-warning {
+  border: 1px solid #d94f4f;
+  background: rgba(217, 79, 79, 0.08);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #d94f4f;
+  margin: 10px 0;
+}

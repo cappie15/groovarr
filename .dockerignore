@@ -1,0 +1,28 @@
+# Keeps the Docker build context (context: ".." from docker/docker-compose.yml,
+# or repo root when building docker/Dockerfile directly) small and
+# reproducible — none of this is needed inside the image; the Dockerfile
+# copies only the specific paths it needs.
+
+.git
+.github
+
+# Backend
+backend/.venv
+backend/**/__pycache__
+backend/**/*.pyc
+backend/.pytest_cache
+backend/.ruff_cache
+backend/*.egg-info
+backend/tests
+
+# Frontend
+frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo
+
+# Local runtime volumes / secrets if ever created at the repo root
+docker/config
+docker/music-videos
+docker/downloads
+docker/.env
+**/.env

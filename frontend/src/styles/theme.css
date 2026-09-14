@@ -1,0 +1,86 @@
+/*
+ * Groovarr theme tokens.
+ *
+ * Dense, information-first, *arr-inspired admin UI — not a consumer app.
+ * Light palette lives on :root; dark overrides apply automatically under
+ * prefers-color-scheme (no manual toggle in Phase 1 — that's a later-phase
+ * nicety, not part of the foundation scaffold).
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f4f5f7;
+  --bg-elevated: #ffffff;
+  --bg-sidebar: #1f2530;
+  --bg-sidebar-hover: #2a3140;
+  --bg-sidebar-active: #323c4f;
+
+  --text: #1a1d23;
+  --text-muted: #5b6472;
+  --text-on-sidebar: #c7cdd6;
+  --text-on-sidebar-muted: #838d9c;
+  --text-on-sidebar-active: #ffffff;
+
+  --border: #dde1e6;
+  --border-strong: #c3c9d1;
+
+  --accent: #3d7bfd;
+  --accent-contrast: #ffffff;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius: 4px;
+  --sidebar-width: 232px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --bg-elevated: #1b1e24;
+    --bg-sidebar: #101216;
+    --bg-sidebar-hover: #1c1f26;
+    --bg-sidebar-active: #262b35;
+
+    --text: #e4e6ea;
+    --text-muted: #9298a3;
+    --text-on-sidebar: #b7bdc8;
+    --text-on-sidebar-muted: #6b7280;
+    --text-on-sidebar-active: #ffffff;
+
+    --border: #2a2d34;
+    --border-strong: #3a3e47;
+
+    --accent: #5b8dfd;
+    --accent-contrast: #0b0d10;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
+}
+
+a {
+  color: var(--accent);
+}

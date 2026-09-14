@@ -1,0 +1,41 @@
+# Groovarr — single-container Compose stack.
+#
+# Per docs/00-research-and-architecture-review.md §4/§5: one process, one
+# container (no Redis/queue/worker sidecars). Volumes match the three
+# documented bind-mount roles: /config (SQLite DB + settings), /music-videos
+# (final library), /downloads (working area).
+#
+# Usage: from this `docker/` directory, `cp ../.env.example .env` (see the
+# backend's documented required settings, e.g. GROOVARR_SECRET_KEY) and
+# `docker compose up -d --build`. Run from *this* directory (rather than
+# `docker compose -f docker/docker-compose.yml up` from the repo root) so
+# Compose's project directory — where it looks for `.env` — is `docker/`,
+# matching where you just created it.
+
+services:
+  groovarr:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        PORT: ${PORT:-8080}
+    image: groovarr:latest
+    container_name: groovarr
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    volumes:
+      - ./config:/config
+      - ./music-videos:/music-videos
+      - ./downloads:/downloads
+    env_file:
+      - .env
+    environment:
+      # Mirrors the port mapping above; overridden by .env if set there too.
+      PORT: ${PORT:-8080}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT','8080') + '/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
