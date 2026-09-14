@@ -35,5 +35,8 @@ playlist reconstruction in Spotify order.
 
 Full research, architecture decisions, and rationale live in [`docs/`](docs/), starting with
 [`docs/00-research-and-architecture-review.md`](docs/00-research-and-architecture-review.md).
-Third-party project licenses are tracked in
-[`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md).
+A concise, code-facing developer map is in [`docs/architecture.md`](docs/architecture.md); short
+records of individual decisions are in [`docs/adr/`](docs/adr/); the security posture is in
+[`docs/security.md`](docs/security.md). Third-party project licenses are tracked in
+[`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md). Contributing? Start with
+[`CONTRIBUTING.md`](CONTRIBUTING.md).

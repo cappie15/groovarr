@@ -186,8 +186,31 @@ class JellyfinClient:
         result: str = response.json()["Id"]
         return result
 
-    async def rename_playlist(self, playlist_id: str, name: str) -> None:
-        await self._request("POST", f"/Playlists/{playlist_id}", json={"Name": name})
+    async def rename_playlist(self, playlist_id: str, name: str, *, user_id: str) -> None:
+        """Renames a playlist via a read-modify-write against the generic
+        `Items` endpoint.
+
+        LIVE-VERIFIED FINDING (2026-09-14, against a real Jellyfin 12.0.0
+        server): the dedicated `POST /Playlists/{id}` rename endpoint that
+        earlier research (against documented 10.9-10.11.x behavior) assumed
+        would work instead unconditionally returns `400 Bad Request`
+        regardless of request body shape — a real API regression/change in
+        that major version, not a client bug (confirmed by testing several
+        body shapes, all rejected identically). The generic
+        `POST /Items/{id}` update endpoint does work, but requires posting
+        back the FULL item DTO — a partial `{"Name": ...}` body risks
+        resetting every other unspecified field to its default, which would
+        be destructive on a real, populated playlist. So this fetches the
+        current item first, changes only `Name`, and posts the whole object
+        back — verified live to both succeed (204) and leave the rest of the
+        item's fields untouched.
+        """
+        if not user_id:
+            raise JellyfinMissingUserError("Cannot rename a Jellyfin playlist without a configured Jellyfin user")
+        response = await self._request("GET", f"/Users/{user_id}/Items/{playlist_id}")
+        dto = response.json()
+        dto["Name"] = name
+        await self._request("POST", f"/Items/{playlist_id}", json=dto)
 
     async def delete_playlist(self, playlist_id: str) -> None:
         await self._request("DELETE", f"/Items/{playlist_id}")

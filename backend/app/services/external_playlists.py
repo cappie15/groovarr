@@ -282,7 +282,7 @@ async def sync_external_playlist(
                 await session.commit()
                 return PlaylistSyncOutcome(state=row.sync_state, item_count=0)
             if row.last_synced_name != desired_name:
-                await client.rename_playlist(row.external_id, desired_name)
+                await _rename_playlist(session, client, platform, row.external_id, desired_name)
             await client.delete_playlist(row.external_id)
             row.external_id = await _create_playlist(session, http, client, platform, desired_name, ordered_ids)
 
@@ -451,3 +451,13 @@ async def _create_playlist(
         creds = await get_jellyfin_credentials(session)
         return await client.create_playlist(user_id=creds.user_id, name=name, item_ids=item_ids)  # type: ignore[no-any-return]
     return await client.create_playlist(title=name, rating_keys=item_ids)  # type: ignore[no-any-return]
+
+
+async def _rename_playlist(
+    session: AsyncSession, client: Any, platform: ExternalPlatform, external_id: str, name: str
+) -> None:
+    if platform == ExternalPlatform.JELLYFIN:
+        creds = await get_jellyfin_credentials(session)
+        await client.rename_playlist(external_id, name, user_id=creds.user_id)
+    else:
+        await client.rename_playlist(external_id, name)

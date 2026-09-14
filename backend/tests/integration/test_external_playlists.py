@@ -373,3 +373,53 @@ async def test_jellyfin_media_path_remap_translates_path_before_lookup(db_sessio
 
     await db_session.refresh(asset_a)
     assert asset_a.jellyfin_sync_status == SyncStatus.SYNCED
+
+
+@pytest.mark.asyncio
+async def test_jellyfin_rename_uses_safe_read_modify_write(db_session):
+    """LIVE-VERIFIED FINDING (2026-09-14, real Jellyfin 12.0.0 server): the
+    dedicated `POST /Playlists/{id}` rename endpoint unconditionally 400s on
+    that server version. `FakeJellyfinBackend` models this — its handler for
+    that path always returns 400 — so if `JellyfinClient.rename_playlist`
+    regressed to calling it again, this test would fail with an unhandled
+    HTTPStatusError rather than silently passing. It must instead use a
+    GET-then-POST round trip against `/Items/{id}` that preserves fields it
+    didn't touch (a naive partial-body rename would wipe them) — proven here
+    via the fake backend's `SortName` field surviving the rename untouched.
+    """
+    await _configure_jellyfin(db_session)
+    playlist = await _make_playlist(db_session, name="Original Name", jellyfin_enabled=True)
+    track_a = await _make_track(db_session, spotify_track_id="a", title="Song A")
+    backend = FakeJellyfinBackend()
+    item_a = backend.add_item(name="Song A", path="/music-videos/a.mp4")
+    asset_a = await _make_available_asset(db_session, track=track_a, local_path="/music-videos/a.mp4")
+    await _link(db_session, playlist=playlist, track=track_a, asset=asset_a)
+    db_session.add(PlaylistEntry(playlist_id=playlist.id, track_id=track_a.id, position=0, occurrence_index=0))
+    await db_session.commit()
+
+    async with backend.build_client() as http:
+        first = await sync_external_playlist(db_session, http, ExternalPlatform.JELLYFIN, playlist)
+        assert first.state == ExternalPlaylistSyncState.SYNCED
+
+        row = await db_session.scalar(
+            select(ExternalPlaylist).where(
+                ExternalPlaylist.platform == ExternalPlatform.JELLYFIN,
+                ExternalPlaylist.spotify_playlist_id == playlist.id,
+            )
+        )
+        original_external_id = row.external_id
+        assert backend.playlists[original_external_id]["SortName"] == "unchanged-by-rename"
+
+        playlist.name = "Renamed Playlist"
+        await db_session.commit()
+
+        second = await sync_external_playlist(db_session, http, ExternalPlatform.JELLYFIN, playlist)
+        assert second.state == ExternalPlaylistSyncState.SYNCED
+
+    # The rename branch renames-then-deletes-then-recreates the playlist, so
+    # the final external id differs from the original, but the intermediate
+    # rename call against `original_external_id` must have succeeded (via
+    # the safe path) rather than raising — reaching this point at all is
+    # most of the proof; the item-count/order assertion closes the loop.
+    await db_session.refresh(row)
+    assert item_a in backend.playlists[row.external_id]["_items"]

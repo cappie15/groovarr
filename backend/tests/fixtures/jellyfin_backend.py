@@ -1,18 +1,26 @@
 """A tiny in-memory fake of the Jellyfin API endpoints Groovarr calls, wired
 up via `httpx.MockTransport` (§92, mirrors tests/fixtures/spotify_backend.py).
 
-Deliberately reproduces the two real, researched Jellyfin quirks rather than
-just recording calls: (1) a POST /Playlists call with no real UserId gets the
-actual documented Guid.Empty-style failure (issue #12999), so a test proves
-Groovarr's client never triggers it, rather than merely asserting it *tried*
-to send one; (2) `parent_folder_missing` reproduces issue #14025's first-run
-ArgumentException.
+Deliberately reproduces real, researched/live-verified Jellyfin quirks
+rather than just recording calls: (1) a POST /Playlists call with no real
+UserId gets the actual documented Guid.Empty-style failure (issue #12999),
+so a test proves Groovarr's client never triggers it, rather than merely
+asserting it *tried* to send one; (2) `parent_folder_missing` reproduces
+issue #14025's first-run ArgumentException; (3) the dedicated
+`POST /Playlists/{id}` rename endpoint is modeled as ALWAYS returning 400,
+because that is what a real, live Jellyfin 12.0.0 server actually did when
+tested on 2026-09-14 (every request-body shape tried was rejected
+identically) — Groovarr's client no longer calls that endpoint at all (see
+`JellyfinClient.rename_playlist`'s docstring), so this fixture existing in
+the "always fails" state is what proves the client has genuinely stopped
+relying on it, not an oversight.
 """
 
 import re
 
 import httpx
 
+_USER_ITEM_RE = re.compile(r"/Users/([^/]+)/Items/([^/]+)$")
 _USERS_ITEMS_RE = re.compile(r"/Users/([^/]+)/Items$")
 _PLAYLIST_RE = re.compile(r"/Playlists/([^/]+)$")
 _ITEM_RE = re.compile(r"/Items/([^/]+)$")
@@ -86,6 +94,13 @@ class FakeJellyfinBackend:
                 return httpx.Response(200, json={"Id": "task-1", "State": self.scan_task_state})
             return httpx.Response(404)
 
+        if match := _USER_ITEM_RE.search(path):
+            item_id = match.group(2)
+            item = self.playlists.get(item_id) or self.items.get(item_id)
+            if item is None:
+                return httpx.Response(404)
+            return httpx.Response(200, json=item)
+
         if match := _USERS_ITEMS_RE.search(path):
             params = request.url.params
             include_types = params.get("IncludeItemTypes", "")
@@ -109,16 +124,33 @@ class FakeJellyfinBackend:
                 )
             playlist_id = f"playlist-{self._next_id}"
             self._next_id += 1
-            self.playlists[playlist_id] = {"Id": playlist_id, "Name": body["Name"], "_items": body.get("Ids", [])}
+            self.playlists[playlist_id] = {
+                "Id": playlist_id,
+                "Name": body["Name"],
+                "_items": body.get("Ids", []),
+                # An arbitrary extra field, unrelated to renaming, that a
+                # naive partial-body rename would silently wipe out — a
+                # read-modify-write rename must leave this untouched.
+                "SortName": "unchanged-by-rename",
+            }
             return httpx.Response(200, json={"Id": playlist_id})
 
         if (match := _PLAYLIST_RE.search(path)) and request.method == "POST":
-            playlist_id = match.group(1)
-            if playlist_id not in self.playlists:
+            # LIVE-VERIFIED (2026-09-14, real Jellyfin 12.0.0): this
+            # dedicated rename endpoint unconditionally 400s regardless of
+            # body shape. Groovarr's client no longer calls it (it uses
+            # GET+POST against /Items/{id} instead) — this fixture models
+            # the real failure so a regression that reintroduces a call here
+            # would be caught.
+            return httpx.Response(400, text="Error processing request.")
+
+        if (match := _ITEM_RE.search(path)) and request.method == "POST":
+            item_id = match.group(1)
+            if item_id not in self.playlists:
                 return httpx.Response(404)
             body = _json(request)
             if "Name" in body:
-                self.playlists[playlist_id]["Name"] = body["Name"]
+                self.playlists[item_id]["Name"] = body["Name"]
             return httpx.Response(204)
 
         if (match := _ITEM_RE.search(path)) and request.method == "DELETE":

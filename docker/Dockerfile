@@ -68,13 +68,25 @@ ENV PORT=${PORT} \
 # image's ffmpeg component is GPL v2+, not the LGPL-only build the
 # architecture doc discusses as the ideal — see THIRD_PARTY_NOTICES.md for
 # the honest license status of what's actually shipped here.
+#
+# `gosu` is for the entrypoint's privilege-drop step (see docker/entrypoint.sh):
+# the container starts as root so it can fix ownership of freshly-created
+# bind-mounted host volumes on first run (a plain `docker compose up` on an
+# operator's host creates ./config, ./music-videos, ./downloads as
+# root:root — a fixed-uid non-root USER can't write to those), then execs
+# into the unprivileged `groovarr` user via gosu (a proper execve-based
+# swap, unlike `su`, so PID 1's signal handling for graceful shutdown stays
+# intact).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root runtime user (§9 "Container hardening: non-root runtime user").
 # Fixed numeric uid/gid so bind-mounted host volumes can be chowned
-# predictably by the operator.
+# predictably by the operator (or by the entrypoint itself, see above).
+# No `USER` directive here — this image intentionally starts as root and
+# drops to this user at runtime via `gosu` in entrypoint.sh, not at build
+# time (§9's non-root-runtime-user requirement is still met: the actual
+# application process never runs as root).
 RUN groupadd --gid 10001 groovarr \
     && useradd --uid 10001 --gid groovarr --create-home --shell /usr/sbin/nologin groovarr
 
@@ -93,23 +105,16 @@ COPY --from=backend-build /install /usr/local
 COPY backend/alembic.ini ./backend/alembic.ini
 COPY backend/app ./backend/app
 
-# Built frontend static assets.
-#
-# ASSUMPTION / TODO for whoever wires this up: as of this writing the
-# backend (Phase 1 "Foundation") only exposes GET /health — there is no
-# FastAPI StaticFiles mount serving the SPA yet. The build output is copied
-# to this stable path so that whichever later phase adds static-file
-# serving (per §4/§5: "served by the backend container") has it available;
-# adjust this COPY destination if that mount point ends up expecting a
-# different path.
+# Built frontend static assets — served by the backend's FastAPI
+# StaticFiles mount (backend/app/main.py `_mount_frontend()`) at this exact
+# path, resolved relative to the backend package location so it works
+# identically in this container layout and in the dev repo layout.
 COPY --from=frontend-build /src/frontend/dist ./frontend/dist
 
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh \
     && mkdir -p /config /music-videos /downloads \
     && chown -R groovarr:groovarr /app /config /music-videos /downloads
-
-USER groovarr:groovarr
 
 EXPOSE ${PORT}
 

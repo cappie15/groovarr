@@ -106,7 +106,14 @@ periodic re-search for `Incomplete`/non-manually-selected assets).
 
 ## Tests
 
-220 tests as of Phase 10 (`pytest -q`), organized under `tests/unit/` (pure logic — naming,
-normalization, scoring fixtures) and `tests/integration/` (real SQLite + real ffmpeg/mutagen
-where the pipeline touches them; only genuinely external services — Spotify, YouTube,
-LRCLIB, Jellyfin, Plex — are mocked, mirroring the architecture doc's own §92 test strategy).
+235 tests as of the post-hardening/frontend-wiring pass (`pytest -q`), organized under
+`tests/unit/` (pure logic — naming, normalization, scoring fixtures) and `tests/integration/`
+(real SQLite + real ffmpeg/mutagen where the pipeline touches them; only genuinely external
+services — Spotify, YouTube, LRCLIB, Jellyfin, Plex — are mocked, mirroring the architecture
+doc's own §92 test strategy).
+
+## Decision records
+
+Short, per-decision records (what was decided, what it implies for the code) live in
+[`docs/adr/`](adr/) — one file per major architectural choice, each linking back to the relevant
+section of `00-research-and-architecture-review.md` for the full rationale.
