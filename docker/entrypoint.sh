@@ -48,7 +48,19 @@ if [ "$(id -u)" = "0" ]; then
     gosu groovarr:groovarr alembic upgrade head
 
     echo "groovarr: starting uvicorn on 0.0.0.0:${PORT} as uid ${APP_UID}..." >&2
-    exec gosu groovarr:groovarr uvicorn app.main:app --host 0.0.0.0 --port "${PORT}"
+    # --proxy-headers makes uvicorn trust X-Forwarded-Proto/X-Forwarded-Host
+    # from whatever's in front of it, so URLs Groovarr builds for itself
+    # (notably the Spotify PKCE redirect_uri, which must be an exact match
+    # of what the operator registered in the Spotify Dashboard) come out
+    # correct when Groovarr sits behind a TLS-terminating reverse proxy —
+    # required for that flow at all, since Spotify rejects a bare-LAN-IP
+    # http:// redirect URI outright. --forwarded-allow-ips=* trusts this
+    # from any upstream; acceptable for a single-user self-hosted app whose
+    # operator controls what's allowed to reach it (§98), but an operator
+    # running a genuinely untrusted network path in front of Groovarr
+    # should narrow this to their actual proxy's address instead.
+    exec gosu groovarr:groovarr uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" \
+        --proxy-headers --forwarded-allow-ips='*'
 else
     # Not started as root (e.g. a custom `docker run --user` override) —
     # skip the ownership fix-up (we couldn't chown anything anyway) and run
@@ -58,5 +70,6 @@ else
     alembic upgrade head
 
     echo "groovarr: starting uvicorn on 0.0.0.0:${PORT}..." >&2
-    exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}"
+    exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" \
+        --proxy-headers --forwarded-allow-ips='*'
 fi

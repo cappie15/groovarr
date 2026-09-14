@@ -48,3 +48,4 @@ frontend/build/
 .idea/
 .DS_Store
 Thumbs.db
+docker/tls-proxy/
