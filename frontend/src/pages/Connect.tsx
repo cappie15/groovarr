@@ -17,6 +17,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { StatusBadge } from '../components/StatusBadge';
 import { useToast } from '../components/Toast';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Unexpected error — please try again.';
@@ -61,6 +62,8 @@ function ConnectionEditor({
   onSave: () => void;
   busy: boolean;
 }) {
+  const modalRef = useModalA11y<HTMLDivElement>(true, onCancel);
+
   function toggleEvent(eventType: string) {
     const next = new Set(form.eventTypes);
     if (next.has(eventType)) next.delete(eventType);
@@ -69,9 +72,9 @@ function ConnectionEditor({
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal" style={{ width: 540, maxWidth: '90vw' }}>
-        <h2>{form.id === null ? 'Add Connection' : `Edit ${form.name || 'Connection'}`}</h2>
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="connection-editor-title">
+      <div className="modal" style={{ width: 540, maxWidth: '90vw' }} ref={modalRef} tabIndex={-1}>
+        <h2 id="connection-editor-title">{form.id === null ? 'Add Connection' : `Edit ${form.name || 'Connection'}`}</h2>
 
         <div className="settings-section__row">
           <div className="field" style={{ flex: 1 }}>

@@ -80,19 +80,41 @@ export function DataTable<T>({
       <table>
         <thead>
           <tr>
-            {columns.map((column) => (
-              <th
-                key={column.key}
-                className={column.sortAccessor ? 'data-table__sortable' : undefined}
-                style={{ textAlign: column.align ?? 'left' }}
-                onClick={() => toggleSort(column)}
-              >
-                {column.header}
-                {sort?.key === column.key && (
-                  <span className="data-table__sort-arrow">{sort.direction === 'asc' ? ' ↑' : ' ↓'}</span>
-                )}
-              </th>
-            ))}
+            {columns.map((column) => {
+              const sorted = sort?.key === column.key;
+              const ariaSort = !column.sortAccessor
+                ? undefined
+                : sorted
+                  ? sort!.direction === 'asc'
+                    ? 'ascending'
+                    : 'descending'
+                  : 'none';
+              return column.sortAccessor ? (
+                <th
+                  key={column.key}
+                  className="data-table__sortable"
+                  style={{ textAlign: column.align ?? 'left' }}
+                  aria-sort={ariaSort}
+                >
+                  {/* A real button, not the <th> itself, carries the click/key handling
+                     — a <th tabIndex=0 onKeyDown> would work but a native <button>
+                     gets Enter/Space activation, and the button focus-visible state,
+                     for free instead of reimplementing both by hand. */}
+                  <button type="button" className="data-table__sort-button" onClick={() => toggleSort(column)}>
+                    {column.header}
+                    {sorted && (
+                      <span className="data-table__sort-arrow" aria-hidden="true">
+                        {sort!.direction === 'asc' ? ' ↑' : ' ↓'}
+                      </span>
+                    )}
+                  </button>
+                </th>
+              ) : (
+                <th key={column.key} style={{ textAlign: column.align ?? 'left' }}>
+                  {column.header}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>

@@ -18,6 +18,7 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { StatusBadge } from '../components/StatusBadge';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { useToast } from '../components/Toast';
 
 function formatDateTime(iso: string | null): string {
@@ -136,6 +137,7 @@ function ExternalPlatformControl({
             <div className="inline-form">
               <input
                 type="text"
+                aria-label={`${platformLabel} playlist name`}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder={`${platformLabel} playlist name`}
@@ -248,6 +250,7 @@ function DisconnectConfirmModal({
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const modalRef = useModalA11y<HTMLDivElement>(true, onCancel);
 
   async function confirm() {
     setBusy(true);
@@ -262,9 +265,9 @@ function DisconnectConfirmModal({
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal">
-        <h2>Disconnect &amp; finalize “{playlist.name}”?</h2>
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="disconnect-modal-title">
+      <div className="modal" ref={modalRef} tabIndex={-1}>
+        <h2 id="disconnect-modal-title">Disconnect &amp; finalize “{playlist.name}”?</h2>
         <p>
           Groovarr will stop applying future Spotify changes to this playlist. This does{' '}
           <strong>not</strong> delete any downloaded media, and does not empty or remove the

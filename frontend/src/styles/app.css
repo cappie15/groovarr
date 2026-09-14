@@ -103,7 +103,11 @@
 
 .sidebar__link--active svg {
   opacity: 1;
-  color: var(--accent);
+  /* --accent-vivid, not --accent: the sidebar is always dark chrome (in
+     both palettes), so the icon needs the vivid teal, not the light-mode
+     --accent value tuned to read as text on a *light* page background. See
+     theme.css for the measured contrast failure this replaced. */
+  color: var(--accent-vivid);
 }
 
 .sidebar__footer {

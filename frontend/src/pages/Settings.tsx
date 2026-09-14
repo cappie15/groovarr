@@ -31,6 +31,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { StatusBadge } from '../components/StatusBadge';
 import { useToast } from '../components/Toast';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 // `errorMessage`, `SettingsSection` and `SaveButton` are exported so the
 // Setup Wizard (pages/SetupWizard.tsx) can reuse this page's own card look
@@ -831,6 +832,7 @@ function MonitorBetterVersionsSection({
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const modalRef = useModalA11y<HTMLDivElement>(confirming, () => setConfirming(false));
 
   async function apply(enabled: boolean) {
     setBusy(true);
@@ -867,9 +869,9 @@ function MonitorBetterVersionsSection({
       </label>
 
       {confirming && (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal">
-            <h2>Enable better-version monitoring?</h2>
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="monitor-better-versions-title">
+          <div className="modal" ref={modalRef} tabIndex={-1}>
+            <h2 id="monitor-better-versions-title">Enable better-version monitoring?</h2>
             <p>{settings.monitor_better_versions_warning}</p>
             <div className="modal-actions">
               <button type="button" className="btn" onClick={() => setConfirming(false)} disabled={busy}>

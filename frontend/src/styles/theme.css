@@ -28,19 +28,46 @@
   /* "Signal Accents" direction: brand mark teal, paired with a violet
      secondary used only for brand chrome (sidebar active-item gradient) —
      never for a semantic state. Light-mode values are deepened for AA
-     contrast on a white background; dark-mode keeps the vivid mark colors. */
-  --accent: #0d9488;
+     contrast on a white background; dark-mode keeps the vivid mark colors.
+     a11y audit (2026-09-14): #0d9488 measured 3.43-3.74:1 as text/on-fill
+     against white/near-white (accent-as-link-text, .data-table__sort-arrow,
+     stat-card--info value+label on its own tint, badge-ink-on-info-fill,
+     accent-contrast-on-btn--primary) — all below the 4.5:1 text/UI-text
+     threshold. Deepened further to #0b7b71 (5.14:1 on white, 4.54:1 on its
+     own 9% stat-card tint, the binding case) to actually clear AA; verified
+     with a WCAG relative-luminance calculation, not eyeballed. */
+  --accent: #0b7b71;
   --accent-contrast: #ffffff;
   --brand-violet: #6e56cf;
+  /* Fixed vivid teal for content that always sits on the dark sidebar
+     chrome (which stays dark in both the light and dark palette) — the
+     active nav-item icon needs a *light* teal to read against that dark
+     background, which is the opposite requirement from --accent's "readable
+     as text/fill on a light page" job above. Reusing --accent there (as
+     shipped) measured 2.37-2.55:1 against the active-item gradient in light
+     mode, below the 3:1 UI-component threshold; this fixed value (the same
+     vivid teal already used for dark-mode --accent) measures 5.07-5.08:1
+     against both gradient stops in light mode and is unaffected in dark
+     mode since it's the same color dark --accent already used. */
+  --accent-vivid: #22d3c5;
 
   /* Semantic state colors — centralized here (previously duplicated as
      hardcoded hex across StatCard.css/StatusBadge.css/DataTable.css/
      Settings.tsx/Sidebar.tsx/ErrorBanner.css/Toast.css/actions.css/
      CandidateScoreExplain.css); every one of those now references these
-     tokens instead of its own copy. */
-  --success: #15803d;
+     tokens instead of its own copy.
+     a11y audit (2026-09-14): --danger and --success both measured just
+     under 4.5:1 as text on their own stat-card tint background (the
+     binding case, since the tint mixes the same color into the card's
+     background) — --danger 3.92:1, --success 4.46:1 — and --danger also
+     landed the CandidateScoreExplain rejection-flag pill at 3.89:1 for the
+     same reason. Deepened both minimally (danger -8.5%, success -1.5%) to
+     clear 4.5:1 on their own tint while keeping every other pairing that
+     was already passing (badge-ink-on-fill, btn--danger text) unchanged in
+     kind, just with more margin. */
+  --success: #157e3c;
   --warning: #a35a00;
-  --danger: #d1453d;
+  --danger: #bf3f38;
   /* Readable text color to place on top of a solid --accent/--success/
      --warning/--danger fill (status-badge pills, per the "Signal Accents"
      direction) — the semantic colors themselves are dark/deep in light
@@ -66,7 +93,11 @@
     --text: #e4e6ea;
     --text-muted: #9298a3;
     --text-on-sidebar: #b7bdc8;
-    --text-on-sidebar-muted: #6b7280;
+    /* a11y audit (2026-09-14): #6b7280 measured 3.88:1 against --bg-sidebar
+       (used for the sidebar group labels and the footer version text, both
+       normal-size text) — below 4.5:1. Lightened minimally to #767d8a
+       (4.5:1 exactly against #101216). */
+    --text-on-sidebar-muted: #767d8a;
     --text-on-sidebar-active: #ffffff;
 
     --border: #2a2d34;
@@ -78,7 +109,12 @@
 
     --success: #33c07a;
     --warning: #e2a93d;
-    --danger: #f0564f;
+    /* a11y audit (2026-09-14): #f0564f measured 4.33:1 as text on its own
+       stat-card/rejection-flag tint background (the binding case — see the
+       --danger note in :root) — below 4.5:1. Lightened minimally to
+       #f15e57 (4.50:1 on its own tint; badge-ink-on-fill still comfortably
+       passes at 6.00:1). */
+    --danger: #f15e57;
     --badge-ink: #0b0d10;
   }
 }
@@ -108,4 +144,26 @@ body {
 
 a {
   color: var(--accent);
+}
+
+/* a11y audit (2026-09-14): nothing in the app defined a focus style before
+   this — keyboard-only navigation was relying entirely on each browser's own
+   default focus ring, which is inconsistent across browsers, can be clipped
+   by an ancestor's `overflow: hidden` (e.g. .data-table's rounded corners),
+   and isn't guaranteed to contrast against this app's dark chrome (a
+   default blue ring is fine, but nothing here enforced it). Defined
+   explicitly instead: 2px solid, offset so it's never clipped by a rounded
+   card/table edge, and colored per-context so it's always measurably
+   visible — --accent already clears the WCAG contrast checks above against
+   the light page background it normally sits on (5.14:1/4.71:1 light,
+   9.65:1/8.90:1 dark against bg/bg-elevated), and --accent-vivid (below)
+   clears 5.9-10:1 against every dark-sidebar background it can appear on. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.sidebar :focus-visible {
+  outline-color: var(--accent-vivid);
 }

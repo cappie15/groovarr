@@ -25,10 +25,27 @@
 }
 
 .data-table__sortable {
+  padding: 0;
+}
+
+/* The <th>'s own padding moves onto this button so the whole header cell
+ * stays one hit target/focus target (mouse or keyboard) instead of just the
+ * text inside it. */
+.data-table__sort-button {
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  background: none;
+  border: none;
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
   cursor: pointer;
 }
 
-.data-table__sortable:hover {
+.data-table__sort-button:hover {
   color: var(--text);
 }
 
