@@ -102,23 +102,30 @@ async def _h264_encoder() -> str:
     return "libx264"
 
 
-async def _resolve_hw_video_encoder(policy: HardwareAccelPolicy) -> str | None:
-    """Which hardware encoder key (into `_HW_VIDEO_ARGS`) to attempt for
-    this transcode, or `None` for software-only. `AUTO` defers to
-    `hwaccel.py`'s detected best choice — behaviorally identical to
-    `DISABLED` when nothing is genuinely usable, which is what makes AUTO
-    safe as the default (see `HardwareAccelPolicy` docstring). A forced
-    specific choice (`NVENC`/`QSV`/`VAAPI`) is attempted even if detection
-    didn't confirm it, since an operator may know their setup works better
-    than a generic heuristic — the runtime fallback below still protects
-    against it being wrong.
+async def _resolve_hw_video_encoders(policy: HardwareAccelPolicy) -> list[str]:
+    """Which hardware encoder key(s) (into `_HW_VIDEO_ARGS`) to attempt for
+    this transcode, in priority order, or `[]` for software-only. `AUTO`
+    defers to `hwaccel.py`'s full detected candidate list — not just its
+    top choice — so that if the best-ranked encoder fails at runtime (a
+    real, live-observed case: QSV detected as available via a genuine
+    Intel device, but failing with an MFX session error from a missing
+    userspace runtime component, while VAAPI on the same device worked),
+    the next genuinely-detected candidate is tried before giving up to
+    software. Behaviorally identical to `DISABLED` when nothing is
+    genuinely usable, which is what makes AUTO safe as the default (see
+    `HardwareAccelPolicy` docstring). A forced specific choice
+    (`NVENC`/`QSV`/`VAAPI`) is attempted alone even if detection didn't
+    confirm it, since an operator may know their setup works better than
+    a generic heuristic — the runtime software fallback below still
+    protects against it being wrong; it is not cascaded to the *other*
+    hardware vendors, since the operator explicitly picked one.
     """
     if policy == HardwareAccelPolicy.DISABLED:
-        return None
+        return []
     if policy == HardwareAccelPolicy.AUTO:
         status = await get_hardware_acceleration_status()
-        return status.best()
-    return policy.value  # NVENC/QSV/VAAPI forced explicitly
+        return status.ordered_candidates()
+    return [policy.value]  # NVENC/QSV/VAAPI forced explicitly
 
 
 async def _run_ffmpeg(args: list[str], dest_path: Path) -> tuple[bool, str]:
@@ -150,7 +157,7 @@ async def mux_to_mp4(
 
     When a video transcode is actually needed (source not MP4-compatible),
     `hardware_policy` controls whether a hardware encoder is tried first —
-    see `_resolve_hw_video_encoder`. A hardware attempt that fails at
+    see `_resolve_hw_video_encoders`. A hardware attempt that fails at
     runtime for ANY reason falls back to the existing software path
     (`libopenh264`/`libx264`) rather than failing the whole mux: hardware
     acceleration must never turn a working software fallback into a hard
@@ -183,11 +190,11 @@ async def mux_to_mp4(
             + ["-movflags", "+faststart", str(dest_path)]
         )
 
-    hw_key: str | None = None
+    hw_candidates: list[str] = []
     if not video_ok:
-        hw_key = await _resolve_hw_video_encoder(hardware_policy)
+        hw_candidates = await _resolve_hw_video_encoders(hardware_policy)
 
-    if hw_key is not None:
+    for hw_key in hw_candidates:
         pre_input, video_args = _HW_VIDEO_ARGS[hw_key]
         ok, stderr_tail = await _run_ffmpeg(build(pre_input, video_args), dest_path)
         if ok:
@@ -203,10 +210,14 @@ async def mux_to_mp4(
                 output_path=dest_path, container="mp4", transcoded_video=True, transcoded_audio=not audio_ok
             )
         logger.warning(
-            "acquisition.hw_encode_failed_falling_back_to_software",
+            "acquisition.hw_encode_failed_trying_next_candidate",
             hardware_encoder=hw_key,
+            remaining_candidates=hw_candidates[hw_candidates.index(hw_key) + 1 :],
             stderr_tail=stderr_tail,
         )
+
+    if hw_candidates:
+        logger.warning("acquisition.all_hw_encoders_failed_falling_back_to_software", attempted=hw_candidates)
 
     if video_ok:
         video_args = ["-c:v", "copy"]

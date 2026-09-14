@@ -103,6 +103,27 @@ async def test_nvenc_outranks_qsv_and_vaapi_when_all_available(monkeypatch, tmp_
     assert status.best() == "nvenc"
 
 
+def test_ordered_candidates_matches_best_priority_and_includes_the_rest():
+    # Live-verified gap (see ffmpeg_mux.py's cascading fallback): a
+    # detected-available encoder can still fail at runtime for reasons
+    # detection can't see (e.g. QSV's Intel Media SDK userspace runtime
+    # missing even though the device and PCI vendor check both pass) — so
+    # callers need every genuinely-detected candidate in priority order,
+    # not just the single top pick `best()` returns.
+    all_three = hwaccel.HardwareAccelStatus(nvenc_available=True, qsv_available=True, vaapi_available=True)
+    assert all_three.ordered_candidates() == ["nvenc", "qsv", "vaapi"]
+    assert all_three.ordered_candidates()[0] == all_three.best()
+
+    qsv_and_vaapi = hwaccel.HardwareAccelStatus(nvenc_available=False, qsv_available=True, vaapi_available=True)
+    assert qsv_and_vaapi.ordered_candidates() == ["qsv", "vaapi"]
+
+    vaapi_only = hwaccel.HardwareAccelStatus(nvenc_available=False, qsv_available=False, vaapi_available=True)
+    assert vaapi_only.ordered_candidates() == ["vaapi"]
+
+    none_available = hwaccel.HardwareAccelStatus(nvenc_available=False, qsv_available=False, vaapi_available=False)
+    assert none_available.ordered_candidates() == []
+
+
 @pytest.mark.asyncio
 async def test_result_is_cached_across_calls(monkeypatch):
     calls = {"n": 0}

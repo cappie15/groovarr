@@ -185,6 +185,52 @@ async def test_forced_hardware_encoder_falls_back_to_software_when_device_inacce
     assert probe.video_codec == "h264"
 
 
+@pytest.mark.asyncio
+async def test_auto_cascades_through_multiple_hw_candidates_before_software(tmp_path, monkeypatch):
+    """Orchestration-only test — deliberately mocked, unlike the rest of
+    this file (see its module docstring) — because the real-world scenario
+    it proves (a detected-available encoder failing at runtime while
+    another detected candidate on the same device succeeds) can't be
+    reliably reproduced with real hardware in every environment this suite
+    runs in. Live-verified motivation: on this project's own test host, QSV
+    was detected as available (real Intel device, correct PCI vendor) but
+    failed with a genuine MFX session error at runtime, while VAAPI on the
+    exact same device succeeded — `AUTO` must try both, in priority order,
+    before giving up to software. The real per-encoder ffmpeg argument
+    shapes are exercised with a real ffmpeg process by the tests above.
+    """
+    import app.integrations.acquisition.ffmpeg_mux as ffmpeg_mux_module
+    from app.integrations.acquisition.hwaccel import HardwareAccelStatus
+
+    video = tmp_path / "video.webm"
+    audio = tmp_path / "audio.opus"
+    make_vp9_video(video)
+    make_opus_audio(audio)
+    dest = tmp_path / "out.mp4"
+
+    attempted: list[str] = []
+
+    async def fake_status() -> HardwareAccelStatus:
+        return HardwareAccelStatus(nvenc_available=False, qsv_available=True, vaapi_available=True)
+
+    async def fake_run_ffmpeg(args, dest_path):
+        if "h264_qsv" in args:
+            attempted.append("qsv")
+            return False, "simulated MFX session error"
+        if "h264_vaapi" in args:
+            attempted.append("vaapi")
+            return True, ""
+        raise AssertionError(f"unexpected ffmpeg invocation in this mocked test: {args}")
+
+    monkeypatch.setattr(ffmpeg_mux_module, "get_hardware_acceleration_status", fake_status)
+    monkeypatch.setattr(ffmpeg_mux_module, "_run_ffmpeg", fake_run_ffmpeg)
+
+    result = await mux_to_mp4(video, audio, dest, hardware_policy=HardwareAccelPolicy.AUTO)
+
+    assert attempted == ["qsv", "vaapi"]
+    assert result.transcoded_video is True
+
+
 @pytest.mark.skipif(
     not (os.path.exists("/dev/dri/renderD128") and os.access("/dev/dri/renderD128", os.R_OK | os.W_OK)),
     reason="No VAAPI render device accessible to this process (expected in most CI/sandbox runs)",

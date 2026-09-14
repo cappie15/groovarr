@@ -77,6 +77,29 @@ class HardwareAccelStatus:
             return "vaapi"
         return None
 
+    def ordered_candidates(self) -> list[str]:
+        """All genuinely-detected encoders in the same priority order as
+        `best()`, not just the top choice. LIVE-VERIFIED gap this closes:
+        detection confirming an encoder is *compiled into ffmpeg and a
+        matching device exists* does not guarantee it actually works at
+        runtime — on this project's own test host, QSV was `best()` (Intel
+        vendor ID confirmed) but failed with a real MFX session error
+        (missing/mismatched Intel Media SDK userspace runtime in the
+        container), while VAAPI on the exact same device succeeded. Trying
+        every detected candidate in order before giving up to software
+        means a per-encoder runtime quirk like that one costs a few hundred
+        milliseconds of a failed attempt, not several minutes of forfeited
+        hardware acceleration.
+        """
+        candidates = []
+        if self.nvenc_available:
+            candidates.append("nvenc")
+        if self.qsv_available:
+            candidates.append("qsv")
+        if self.vaapi_available:
+            candidates.append("vaapi")
+        return candidates
+
 
 async def _ffmpeg_has_encoder(name: str) -> bool:
     try:
