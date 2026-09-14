@@ -1,0 +1,71 @@
+# Plex Media Server — throwaway/persistent test instance for Groovarr's Plex
+# integration (ADR 0012), stood up because no live Plex server was available
+# during original development (see docs/adr/0012-plex-integration.md's final
+# consequence note). Deliberately separate from the main docker/ compose
+# project — do not merge into it.
+#
+# Two media roots are mounted:
+#   - ./media          a handful of tiny synthetic ffmpeg-generated clips,
+#     just so a Music/Other-Videos library section can exist at all.
+#   - Groovarr's own /music-videos directory (../music-videos on the host),
+#     mounted read-only at the SAME container path Groovarr itself uses
+#     (see backend/app/core/config.py `media_dir` / docker/.env MEDIA_DIR).
+#     Mounting it at an identical path means Groovarr's exact-path playlist
+#     matching (app/services/external_playlists.py `_map_to_plex_path`)
+#     works with `plex_media_path` left unset, exactly like the "left null
+#     on either side" case its docstring describes — Plex's view of a
+#     downloaded file's path is byte-identical to Groovarr's own.
+#
+# Auth: this server is deliberately left UNCLAIMED (no PLEX_CLAIM — claiming
+# requires an interactive plex.tv sign-in, see ../../PLEX_TEST_NOTES.md for
+# the full writeup of why, and what was verified instead). No auth-weakening
+# config (e.g. ALLOWED_NETWORKS) is used here — a stock, never-claimed PMS
+# has no owner account to authenticate against yet, so it already answers
+# local API calls without a token out of the box; PLEX_TEST_NOTES.md
+# documents the live verification of exactly that, plus how a real
+# X-Plex-Token is still obtained for Groovarr's config (which requires a
+# non-empty token value).
+#
+# Usage: from this directory, `docker compose up -d`, then see
+# PLEX_TEST_NOTES.md for how to obtain a working token and verify it.
+#
+# Networking (live-verified, see PLEX_TEST_NOTES.md "Networking" section):
+# joins the SAME docker network the main `groovarr` container already uses
+# (docker_default, an external network here — this does not touch that
+# project's own compose file or container) instead of the host network.
+# This is a deliberate correction from an earlier host-networking attempt:
+# Plex's own no-token-needed-when-unclaimed local access (see notes) only
+# auto-trusts request sources on whatever subnet it detects as its own
+# primary/local one, and with host networking that did NOT include the
+# docker bridge subnet groovarr's container actually calls from (verified
+# 401 even with a token). Also joining docker_default directly means Plex
+# is not exposed unauthenticated on the host's real LAN at all — reachable
+# only from containers on this same internal docker network (plus whatever
+# host port is published below, for this host's own manual testing) — a
+# narrower blast radius than the host-networking version, not a wider one.
+# Groovarr reaches it at http://plex-test:32400 (the container/DNS name);
+# this host reaches it at http://127.0.0.1:32400 via the published port.
+
+services:
+  plex-test:
+    image: plexinc/pms-docker:latest
+    container_name: plex-test
+    hostname: plex-test
+    restart: unless-stopped
+    ports:
+      - "32400:32400"
+    networks:
+      - docker_default
+    environment:
+      TZ: Europe/Amsterdam
+      PLEX_UID: "1000"
+      PLEX_GID: "1000"
+      # No PLEX_CLAIM on purpose — see module docstring above.
+    volumes:
+      - ./config:/config
+      - ./media:/media-synthetic
+      - ../music-videos:/music-videos:ro
+
+networks:
+  docker_default:
+    external: true

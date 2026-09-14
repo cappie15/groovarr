@@ -1,0 +1,5 @@
+# Runtime state — Plex's own DB/prefs (including whatever token value is
+# in use) and the generated synthetic clips. Regenerate with
+# ./generate-media.sh; `docker compose up -d` recreates ./config on first run.
+config/
+media/
