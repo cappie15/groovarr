@@ -57,7 +57,7 @@
 }
 
 .data-table__status--error {
-  color: #d94f4f;
+  color: var(--danger);
 }
 
 .data-table__pager {

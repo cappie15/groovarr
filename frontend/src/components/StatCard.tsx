@@ -15,7 +15,7 @@ export function StatCard({
 }: {
   label: string;
   value: ReactNode;
-  tone?: 'neutral' | 'warning' | 'danger' | 'success';
+  tone?: 'neutral' | 'info' | 'warning' | 'danger' | 'success';
   sub?: ReactNode;
 }) {
   return (

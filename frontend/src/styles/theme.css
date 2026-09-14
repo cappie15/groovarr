@@ -25,14 +25,33 @@
   --border: #dde1e6;
   --border-strong: #c3c9d1;
 
-  --accent: #3d7bfd;
+  /* "Signal Accents" direction: brand mark teal, paired with a violet
+     secondary used only for brand chrome (sidebar active-item gradient) —
+     never for a semantic state. Light-mode values are deepened for AA
+     contrast on a white background; dark-mode keeps the vivid mark colors. */
+  --accent: #0d9488;
   --accent-contrast: #ffffff;
+  --brand-violet: #6e56cf;
+
+  /* Semantic state colors — centralized here (previously duplicated as
+     hardcoded hex across StatCard.css/StatusBadge.css/DataTable.css/
+     Settings.tsx/Sidebar.tsx/ErrorBanner.css/Toast.css/actions.css/
+     CandidateScoreExplain.css); every one of those now references these
+     tokens instead of its own copy. */
+  --success: #15803d;
+  --warning: #a35a00;
+  --danger: #d1453d;
+  /* Readable text color to place on top of a solid --accent/--success/
+     --warning/--danger fill (status-badge pills, per the "Signal Accents"
+     direction) — the semantic colors themselves are dark/deep in light
+     mode and vivid/light in dark mode, so the ink flips accordingly. */
+  --badge-ink: #ffffff;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --radius: 4px;
+  --radius: 6px;
   --sidebar-width: 232px;
 }
 
@@ -53,8 +72,14 @@
     --border: #2a2d34;
     --border-strong: #3a3e47;
 
-    --accent: #5b8dfd;
+    --accent: #22d3c5;
     --accent-contrast: #0b0d10;
+    --brand-violet: #6e56cf;
+
+    --success: #33c07a;
+    --warning: #e2a93d;
+    --danger: #f0564f;
+    --badge-ink: #0b0d10;
   }
 }
 

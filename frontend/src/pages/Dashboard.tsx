@@ -43,7 +43,11 @@ export default function Dashboard() {
       <div className="stat-card-grid">
         <StatCard label="Connected Playlists" value={loading ? '—' : data!.connected_playlists} />
         <StatCard label="Monitored Tracks" value={loading ? '—' : data!.monitored_tracks} />
-        <StatCard label="Active Downloads" value={loading ? '—' : data!.active_queue_count} />
+        <StatCard
+          label="Active Downloads"
+          value={loading ? '—' : data!.active_queue_count}
+          tone={!loading && data!.active_queue_count > 0 ? 'info' : 'neutral'}
+        />
         <StatCard
           label="Manual Review Required"
           value={loading ? '—' : data!.manual_review_required_count}

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import './StatusBadge.css';
 
 /**
@@ -60,6 +61,35 @@ function humanize(value: string): string {
   );
 }
 
+// One small glyph per tone (not per state — the tone already carries the
+// meaning) rendered ahead of the label, per the "Signal Accents" direction.
+// `currentColor` picks up --badge-ink automatically from the pill's own
+// text color, so these never need their own color logic.
+const TONE_ICON: Record<Tone, ReactNode> = {
+  neutral: null,
+  info: (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M6 1.5v5.5M3 7l3 3 3-3" />
+    </svg>
+  ),
+  success: (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M2.5 6.3 5 8.7 9.5 3.3" />
+    </svg>
+  ),
+  warning: (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M6 1.5a4.5 4.5 0 1 1-3.2 1.3" />
+    </svg>
+  ),
+  danger: (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="3" y1="3" x2="9" y2="9" />
+      <line x1="9" y1="3" x2="3" y2="9" />
+    </svg>
+  ),
+};
+
 export interface StatusBadgeProps {
   status: string;
   /** Override the auto-derived label (rarely needed). */
@@ -68,5 +98,10 @@ export interface StatusBadgeProps {
 
 export function StatusBadge({ status, label }: StatusBadgeProps) {
   const tone = TONE_BY_STATE[status] ?? 'neutral';
-  return <span className={`status-badge status-badge--${tone}`}>{label ?? humanize(status)}</span>;
+  return (
+    <span className={`status-badge status-badge--${tone}`}>
+      {TONE_ICON[tone]}
+      {label ?? humanize(status)}
+    </span>
+  );
 }

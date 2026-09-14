@@ -23,8 +23,8 @@
 }
 
 .toast--error {
-  border-color: color-mix(in srgb, #d94f4f 40%, var(--border));
-  background: color-mix(in srgb, #d94f4f 10%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-elevated));
 }
 
 .toast--info {

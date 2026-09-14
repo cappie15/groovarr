@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import {
+  getHardwareAccelerationDetection,
   getSettings,
   listJellyfinUsers,
   listPlexLibrarySections,
@@ -10,6 +11,7 @@ import {
   testPlexConnection,
   updateContainerPolicy,
   updateDownloadSettings,
+  updateHardwareAcceleration,
   updateJellyfinConfig,
   updateLyricsEnabled,
   updateMatchingThreshold,
@@ -19,6 +21,8 @@ import {
   updateSpotifyUserOAuthEnabled,
   updateSyncInterval,
   type ContainerPolicy,
+  type HardwareAccelPolicy,
+  type HardwareAccelStatusOut,
   type JellyfinUserOut,
   type PlexLibrarySectionOut,
   type SettingsOut,
@@ -193,7 +197,7 @@ function SpotifySection({ settings, onSaved }: { settings: SettingsOut; onSaved:
             {settings.spotify_needs_reauth ? 'Reconnect your Spotify account' : 'Connect / Reconnect'}
           </a>
           {settings.spotify_needs_reauth && (
-            <span className="subtle-note" style={{ color: '#d94f4f' }}>
+            <span className="subtle-note" style={{ color: 'var(--danger)' }}>
               Your stored authorization has expired (Spotify requires re-authorization roughly every 6 months) —
               playlist track sync is paused for every playlist until you reconnect.
             </span>
@@ -695,6 +699,85 @@ function MediaManagementSection({ settings, onSaved }: { settings: SettingsOut; 
   );
 }
 
+const HW_ACCEL_LABELS: Record<HardwareAccelPolicy, string> = {
+  auto: 'Auto (recommended)',
+  disabled: 'Disabled (software only)',
+  nvenc: 'Force NVENC (Nvidia)',
+  qsv: 'Force Quick Sync (Intel)',
+  vaapi: 'Force VAAPI (Intel/AMD)',
+};
+
+function detectionLabel(detected: HardwareAccelStatusOut | null, key: 'nvenc' | 'qsv' | 'vaapi'): string {
+  if (!detected) return '';
+  const available = key === 'nvenc' ? detected.nvenc_available : key === 'qsv' ? detected.qsv_available : detected.vaapi_available;
+  return available ? ' — detected on this host' : ' — not detected on this host';
+}
+
+function HardwareAccelerationSection({
+  settings,
+  onSaved,
+}: {
+  settings: SettingsOut;
+  onSaved: (s: SettingsOut) => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const detection = useApiQuery((signal) => getHardwareAccelerationDetection({ signal }));
+
+  async function choose(policy: HardwareAccelPolicy) {
+    if (policy === settings.hardware_acceleration) return;
+    setBusy(true);
+    try {
+      onSaved(await updateHardwareAcceleration(policy));
+      toast.showInfo('Hardware acceleration setting saved.');
+    } catch (err) {
+      toast.showError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const detected = detection.data ?? null;
+
+  return (
+    <SettingsSection
+      title="Hardware Acceleration"
+      hint="Only relevant when a transcode is actually needed under 'Always transcode to MP4' above — Groovarr tries the selected encoder first and safely falls back to software if it fails, so this never turns a working download into a hard failure. 'Auto' uses whatever Groovarr detects as genuinely usable on this host right now; forcing a specific one is only useful if you know your setup works but auto-detection doesn't confirm it."
+    >
+      {detection.loading && <p className="subtle-note">Detecting available hardware encoders…</p>}
+      {(['auto', 'disabled', 'nvenc', 'qsv', 'vaapi'] as HardwareAccelPolicy[]).map((policy) => (
+        <label className="radio-field" key={policy} style={{ marginTop: policy === 'auto' ? 0 : 6 }}>
+          <input
+            type="radio"
+            name="hardware-acceleration"
+            checked={settings.hardware_acceleration === policy}
+            disabled={busy}
+            onChange={() => choose(policy)}
+          />
+          <span>
+            <strong>{HW_ACCEL_LABELS[policy]}</strong>
+            {policy !== 'auto' && policy !== 'disabled' && detected && (
+              <span className="subtle-note">{detectionLabel(detected, policy)}</span>
+            )}
+            {policy === 'auto' && detected && (
+              <span className="subtle-note">
+                {' '}
+                — best currently detected: {detected.best ? HW_ACCEL_LABELS[detected.best as HardwareAccelPolicy] : 'none (will use software)'}
+              </span>
+            )}
+          </span>
+        </label>
+      ))}
+      <p className="subtle-note" style={{ marginTop: 10 }}>
+        Hardware acceleration inside Docker requires the container to actually see the host's GPU — see the
+        commented-out examples in <code>docker/docker-compose.yml</code> (Intel/AMD via <code>/dev/dri</code>,
+        Nvidia via the NVIDIA Container Toolkit). Groovarr correctly reports "not detected" until that's
+        configured — that's expected, not a bug.
+      </p>
+    </SettingsSection>
+  );
+}
+
 function LyricsSection({ settings, onSaved }: { settings: SettingsOut; onSaved: (s: SettingsOut) => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -831,6 +914,7 @@ export default function Settings() {
       <MatchingSection settings={settings} onSaved={setSettings} />
       <DownloadSection settings={settings} onSaved={setSettings} />
       <MediaManagementSection settings={settings} onSaved={setSettings} />
+      <HardwareAccelerationSection settings={settings} onSaved={setSettings} />
       <LyricsSection settings={settings} onSaved={setSettings} />
       <MonitorBetterVersionsSection settings={settings} onSaved={setSettings} />
 

@@ -581,6 +581,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/hardware-acceleration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Hardware Acceleration */
+        put: operations["update_hardware_acceleration_api_settings_hardware_acceleration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/spotify/oauth/authorize": {
         parameters: {
             query?: never;
@@ -739,6 +756,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/hardware-acceleration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Hardware Acceleration Status */
+        get: operations["read_hardware_acceleration_status_api_system_hardware_acceleration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -869,6 +903,31 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HardwareAccelPolicy
+         * @description Which encoder `ffmpeg_mux.py` tries for a transcode that's actually
+         *     needed (only relevant under `ContainerPolicy.ALWAYS_MP4` — the MKV
+         *     fallback path never transcodes at all). See
+         *     `app/integrations/acquisition/hwaccel.py` for how availability is
+         *     detected.
+         * @enum {string}
+         */
+        HardwareAccelPolicy: "auto" | "disabled" | "nvenc" | "qsv" | "vaapi";
+        /** HardwareAccelRequest */
+        HardwareAccelRequest: {
+            hardware_acceleration: components["schemas"]["HardwareAccelPolicy"];
+        };
+        /** HardwareAccelStatusOut */
+        HardwareAccelStatusOut: {
+            /** Nvenc Available */
+            nvenc_available: boolean;
+            /** Qsv Available */
+            qsv_available: boolean;
+            /** Vaapi Available */
+            vaapi_available: boolean;
+            /** Best */
+            best: string | null;
         };
         /** HistoryEventOut */
         HistoryEventOut: {
@@ -1135,6 +1194,7 @@ export interface components {
             /** Lyrics Enabled */
             lyrics_enabled: boolean;
             container_policy: components["schemas"]["ContainerPolicy"];
+            hardware_acceleration: components["schemas"]["HardwareAccelPolicy"];
         };
         /** SpotifyCredentialsRequest */
         SpotifyCredentialsRequest: {
@@ -2271,6 +2331,39 @@ export interface operations {
             };
         };
     };
+    update_hardware_acceleration_api_settings_hardware_acceleration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HardwareAccelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     authorize_api_spotify_oauth_authorize_get: {
         parameters: {
             query?: never;
@@ -2491,6 +2584,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardSummary"];
+                };
+            };
+        };
+    };
+    read_hardware_acceleration_status_api_system_hardware_acceleration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HardwareAccelStatusOut"];
                 };
             };
         };

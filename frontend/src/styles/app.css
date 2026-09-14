@@ -34,19 +34,6 @@
   flex-shrink: 0;
 }
 
-.sidebar__brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 700;
-  font-size: 13px;
-}
-
 .sidebar__brand-name {
   font-weight: 600;
   font-size: 14px;
@@ -106,12 +93,17 @@
 }
 
 .sidebar__link--active {
-  background: var(--bg-sidebar-active);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 22%, var(--bg-sidebar-active)),
+    color-mix(in srgb, var(--brand-violet) 22%, var(--bg-sidebar-active))
+  );
   color: var(--text-on-sidebar-active);
 }
 
 .sidebar__link--active svg {
   opacity: 1;
+  color: var(--accent);
 }
 
 .sidebar__footer {

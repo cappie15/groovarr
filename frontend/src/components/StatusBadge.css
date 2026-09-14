@@ -2,42 +2,42 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
+  padding: 2px 9px 2px 6px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.6;
   letter-spacing: 0.01em;
   white-space: nowrap;
-  border: 1px solid transparent;
+}
+
+.status-badge svg {
+  flex-shrink: 0;
 }
 
 .status-badge--neutral {
   background: var(--bg);
   color: var(--text-muted);
-  border-color: var(--border);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
 }
 
 .status-badge--info {
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated));
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--accent);
+  color: var(--badge-ink);
 }
 
 .status-badge--success {
-  background: color-mix(in srgb, #2e9e5b 16%, var(--bg-elevated));
-  color: #2e9e5b;
-  border-color: color-mix(in srgb, #2e9e5b 30%, transparent);
+  background: var(--success);
+  color: var(--badge-ink);
 }
 
 .status-badge--warning {
-  background: color-mix(in srgb, #c78a1e 16%, var(--bg-elevated));
-  color: #c78a1e;
-  border-color: color-mix(in srgb, #c78a1e 30%, transparent);
+  background: var(--warning);
+  color: var(--badge-ink);
 }
 
 .status-badge--danger {
-  background: color-mix(in srgb, #d94f4f 16%, var(--bg-elevated));
-  color: #d94f4f;
-  border-color: color-mix(in srgb, #d94f4f 30%, transparent);
+  background: var(--danger);
+  color: var(--badge-ink);
 }

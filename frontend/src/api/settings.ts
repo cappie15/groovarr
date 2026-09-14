@@ -80,6 +80,8 @@ export function updateMonitorBetterVersions(enabled: boolean, options?: RequestO
 }
 
 export type ContainerPolicy = components['schemas']['ContainerPolicy'];
+export type HardwareAccelPolicy = components['schemas']['HardwareAccelPolicy'];
+export type HardwareAccelStatusOut = components['schemas']['HardwareAccelStatusOut'];
 
 /** PUT /api/settings/media — §2 row D: whether the acquisition pipeline
  * transcodes to MP4 (default) or falls back to a stream-copy MKV when the
@@ -111,4 +113,24 @@ export function testPlexConnection(options?: RequestOptions): Promise<{ ok: bool
  * or Other Videos section holds your music videos," not a dedicated type. */
 export function listPlexLibrarySections(options?: RequestOptions): Promise<PlexLibrarySectionOut[]> {
   return apiClient.get<PlexLibrarySectionOut[]>('/plex/library-sections', options);
+}
+
+/** PUT /api/settings/hardware-acceleration — which encoder the acquisition
+ * pipeline tries for a transcode that's actually needed (only relevant
+ * under the "always MP4" container policy — the MKV fallback never
+ * transcodes at all). "auto" defers to what GET
+ * /api/system/hardware-acceleration detects as genuinely usable and is
+ * behaviorally identical to "disabled" when nothing is detected. */
+export function updateHardwareAcceleration(
+  policy: HardwareAccelPolicy,
+  options?: RequestOptions,
+): Promise<SettingsOut> {
+  return apiClient.put<SettingsOut>('/settings/hardware-acceleration', { hardware_acceleration: policy }, options);
+}
+
+/** GET /api/system/hardware-acceleration — what Groovarr actually detected
+ * on this host right now (NVENC/QSV/VAAPI), so the Settings UI can show it
+ * next to the policy choice instead of leaving the operator to guess. */
+export function getHardwareAccelerationDetection(options?: RequestOptions): Promise<HardwareAccelStatusOut> {
+  return apiClient.get<HardwareAccelStatusOut>('/system/hardware-acceleration', options);
 }

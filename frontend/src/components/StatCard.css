@@ -21,16 +21,43 @@
   line-height: 1.1;
 }
 
-.stat-card--warning .stat-card__value {
-  color: #c78a1e;
+/* "Signal Accents": a toned stat card gets both a tinted background and a
+   colored value/label, not just a colored number — makes the ones needing
+   attention scannable at a glance rather than blending into the grid. */
+.stat-card--info {
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.stat-card--info .stat-card__value,
+.stat-card--info .stat-card__label {
+  color: var(--accent);
 }
 
-.stat-card--danger .stat-card__value {
-  color: #d94f4f;
+.stat-card--warning {
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+}
+.stat-card--warning .stat-card__value,
+.stat-card--warning .stat-card__label {
+  color: var(--warning);
 }
 
-.stat-card--success .stat-card__value {
-  color: #2e9e5b;
+.stat-card--danger {
+  background: color-mix(in srgb, var(--danger) 11%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+.stat-card--danger .stat-card__value,
+.stat-card--danger .stat-card__label {
+  color: var(--danger);
+}
+
+.stat-card--success {
+  background: color-mix(in srgb, var(--success) 9%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+}
+.stat-card--success .stat-card__value,
+.stat-card--success .stat-card__label {
+  color: var(--success);
 }
 
 .stat-card__sub {

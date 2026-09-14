@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { getHealth } from '../api/client';
 import { navGroups } from '../nav';
 import { useApiQuery } from '../hooks/useApiQuery';
+import { BrandMark } from './BrandMark';
 import { Icon } from './Icon';
 
 export function Sidebar() {
@@ -16,9 +17,7 @@ export function Sidebar() {
   return (
     <nav className="sidebar" aria-label="Main navigation">
       <div className="sidebar__brand">
-        <span className="sidebar__brand-mark" aria-hidden="true">
-          G
-        </span>
+        <BrandMark />
         <span className="sidebar__brand-name">Groovarr</span>
       </div>
 
@@ -50,7 +49,7 @@ export function Sidebar() {
         <span
           className="sidebar__footer-status"
           aria-hidden="true"
-          style={{ background: health ? (healthy ? undefined : '#d94f4f') : '#6b7280' }}
+          style={{ background: health ? (healthy ? undefined : 'var(--danger)') : '#6b7280' }}
         />
         <span>{health ? `v${health.version}` : 'Connecting…'}</span>
       </div>
