@@ -22,6 +22,42 @@
   flex-shrink: 0;
 }
 
+.candidate-card__thumb-btn {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.candidate-card__play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: calc(var(--radius) - 2px);
+  transition: background-color 0.15s ease;
+}
+
+.candidate-card__thumb-btn:hover .candidate-card__play-overlay,
+.candidate-card__thumb-btn:focus-visible .candidate-card__play-overlay {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.candidate-card__preview {
+  border: 0;
+}
+
+.candidate-card__yt-link {
+  color: var(--accent, inherit);
+}
+
 .candidate-card__body {
   flex: 1;
   min-width: 0;

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ScoreBreakdownEntry, VideoCandidateOut } from '../api/search';
 import './CandidateScoreExplain.css';
@@ -42,14 +43,37 @@ export function CandidateScoreExplain({
         ? 'candidate-score__value--manual-review'
         : '';
 
+  const [previewing, setPreviewing] = useState(false);
+  const watchUrl = `https://www.youtube.com/watch?v=${candidate.youtube_video_id}`;
+
   return (
     <div className="candidate-card">
-      <img
-        className="candidate-card__thumb"
-        src={`https://i.ytimg.com/vi/${candidate.youtube_video_id}/hqdefault.jpg`}
-        alt=""
-        loading="lazy"
-      />
+      {previewing ? (
+        <iframe
+          className="candidate-card__thumb candidate-card__preview"
+          title={candidate.title}
+          src={`https://www.youtube.com/embed/${candidate.youtube_video_id}?autoplay=1`}
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+        />
+      ) : (
+        <button
+          type="button"
+          className="candidate-card__thumb-btn"
+          onClick={() => setPreviewing(true)}
+          aria-label={`Preview ${candidate.title} on YouTube`}
+        >
+          <img
+            className="candidate-card__thumb"
+            src={`https://i.ytimg.com/vi/${candidate.youtube_video_id}/hqdefault.jpg`}
+            alt=""
+            loading="lazy"
+          />
+          <span className="candidate-card__play-overlay" aria-hidden="true">
+            ▶
+          </span>
+        </button>
+      )}
       <div className="candidate-card__body">
         <p className="candidate-card__title">
           {candidate.title}
@@ -58,6 +82,10 @@ export function CandidateScoreExplain({
         <div className="candidate-card__meta">
           {candidate.channel_name ?? 'Unknown channel'} · {formatDuration(candidate.duration_s)} ·{' '}
           {candidate.orientation}
+          {' · '}
+          <a href={watchUrl} target="_blank" rel="noopener noreferrer" className="candidate-card__yt-link">
+            Open on YouTube ↗
+          </a>
         </div>
 
         <div className="candidate-score">
