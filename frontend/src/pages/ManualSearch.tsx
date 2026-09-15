@@ -169,6 +169,24 @@ function TrackCandidates({ trackId, onSwitchTrack }: { trackId: number; onSwitch
         </p>
       )}
 
+      {asset?.spotify_track_id && (
+        <div style={{ marginBottom: 16 }}>
+          <p className="subtle-note" style={{ marginBottom: 4 }}>
+            Play the original Spotify track — useful when the title/artist text alone isn't enough
+            to tell whether a candidate below is actually the right song.
+          </p>
+          <iframe
+            title="Spotify player"
+            src={`https://open.spotify.com/embed/track/${asset.spotify_track_id}?utm_source=generator`}
+            width="100%"
+            height="80"
+            style={{ border: 0, borderRadius: 8 }}
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+          />
+        </div>
+      )}
+
       {candidatesQuery.error && (
         <ErrorBanner message={`Failed to load candidates: ${candidatesQuery.error}`} onRetry={candidatesQuery.refetch} />
       )}

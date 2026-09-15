@@ -71,6 +71,11 @@ class MediaAssetOut(BaseModel):
     track_artist: str | None
     track_title: str | None
     track_release_year: int | None
+    # Lets the frontend embed Spotify's own player (open.spotify.com/embed/
+    # track/<id>) so a reviewer who recognizes a song by ear — but not by
+    # its Spotify-sourced title/artist text, which can be messy or in a
+    # different script — can actually hear it before picking a candidate.
+    spotify_track_id: str | None
     # True when the file's current basename doesn't match what the naming
     # template (app.domain.naming) would render today — i.e. the Organize/
     # Rename action (§15) would actually do something. Always False when
@@ -112,6 +117,7 @@ class MediaAssetOut(BaseModel):
             track_artist=track.canonical_artist if track else None,
             track_title=track.canonical_title if track else None,
             track_release_year=track.release_year if track else None,
+            spotify_track_id=track.spotify_track_id if track else None,
             needs_organize=needs_organize,
         )
 

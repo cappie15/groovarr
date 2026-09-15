@@ -1196,6 +1196,8 @@ export interface components {
             track_title: string | null;
             /** Track Release Year */
             track_release_year: number | null;
+            /** Spotify Track Id */
+            spotify_track_id: string | null;
             /** Needs Organize */
             needs_organize: boolean;
         };
