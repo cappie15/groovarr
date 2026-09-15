@@ -37,21 +37,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.13"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install backend (dev extras)
+      # `--frozen` matches CONTRIBUTING.md's documented workflow and the
+      # Dockerfile's backend-build stage: install exactly what backend/uv.lock
+      # pins rather than re-resolving pyproject.toml's ranges, so CI fails
+      # loudly on the same lock/pyproject drift a production image build
+      # would refuse to build from.
+      - name: Install backend (locked, dev extras)
         working-directory: backend
-        run: pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev
       - name: ruff check
         working-directory: backend
-        run: ruff check .
+        run: uv run ruff check .
 
   backend-test:
     name: Backend tests (pytest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.13"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -62,12 +73,12 @@ jobs:
       # an assumption about the runner image's current contents.
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - name: Install backend (dev extras)
+      - name: Install backend (locked, dev extras)
         working-directory: backend
-        run: pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev
       - name: pytest
         working-directory: backend
-        run: pytest
+        run: uv run pytest
 
   frontend:
     name: Frontend lint + build
